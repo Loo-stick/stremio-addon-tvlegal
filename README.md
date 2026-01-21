@@ -64,6 +64,48 @@ L'addon sera disponible sur `http://localhost:7001/manifest.json`
 3. Cliquez sur "Installer depuis une URL"
 4. Entrez : `http://localhost:7001/manifest.json`
 
+## Docker
+
+L'image Docker est disponible sur GitHub Container Registry.
+
+### Lancement rapide
+
+```bash
+docker run -d \
+  --name tvlegal \
+  -p 7001:7001 \
+  ghcr.io/loo-stick/stremio-addon-tvlegal:latest
+```
+
+### Avec TF1+ (credentials)
+
+```bash
+docker run -d \
+  --name tvlegal \
+  -p 7001:7001 \
+  -e TF1_EMAIL=votre@email.com \
+  -e TF1_PASSWORD=votremotdepasse \
+  ghcr.io/loo-stick/stremio-addon-tvlegal:latest
+```
+
+### Avec Docker Compose
+
+```yaml
+version: '3.8'
+services:
+  tvlegal:
+    image: ghcr.io/loo-stick/stremio-addon-tvlegal:latest
+    container_name: tvlegal
+    restart: unless-stopped
+    ports:
+      - "7001:7001"
+    environment:
+      - TF1_EMAIL=votre@email.com      # Optionnel
+      - TF1_PASSWORD=votremotdepasse   # Optionnel
+```
+
+L'addon sera disponible sur `http://localhost:7001/manifest.json`
+
 ## Sources et contenus
 
 | Source | Direct | Replay | Auth requise |
