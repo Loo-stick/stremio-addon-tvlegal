@@ -118,11 +118,20 @@ L'addon sera disponible sur `http://localhost:7001/manifest.json`
 
 - **Directs** - Chaînes en direct
 - **Films** - Cinéma (Arte)
-- **Séries** - Séries TV (Arte + France.tv)
+- **Séries France.tv** - Séries TV France.tv (avec filtre par genre)
+- **Séries Arte** - Séries TV Arte (avec filtre par genre)
 - **Documentaires** - Documentaires (Arte)
 - **Émissions TV** - Émissions diverses (France.tv)
 - **Sport** - Contenus sportifs (France.tv)
 - **Rugby** - Rugby (France.tv)
+
+### Filtres par genre
+
+Les catalogues Séries supportent le filtrage par genre (Thriller, Policier, Comédie, Drame, etc.) grâce à l'intégration TMDB.
+
+### Compatibilité IMDB
+
+L'addon répond automatiquement aux IDs IMDB (`tt1234567`). Cela signifie que lorsque vous consultez une fiche série/film depuis un autre catalogue (Cinemeta, etc.), l'addon TV Legal proposera automatiquement les sources Arte/France.tv si le contenu est disponible.
 
 ## Limitations connues
 

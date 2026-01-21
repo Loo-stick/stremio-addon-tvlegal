@@ -17,6 +17,7 @@ const express = require('express');
 const FranceTVClient = require('./lib/francetv');
 const ArteClient = require('./lib/arte');
 const TF1Client = require('./lib/tf1');
+const TMDBClient = require('./lib/tmdb');
 
 const PORT = process.env.PORT || 7001;
 
@@ -24,6 +25,13 @@ const PORT = process.env.PORT || 7001;
 const francetv = new FranceTVClient();
 const arte = new ArteClient();
 const tf1 = new TF1Client();
+const tmdb = process.env.TMDB_API_KEY ? new TMDBClient(process.env.TMDB_API_KEY) : null;
+
+if (tmdb) {
+    console.log('[TV Legal] TMDB configuré (genres disponibles)');
+} else {
+    console.log('[TV Legal] TMDB non configuré (pas de filtrage par genre)');
+}
 
 // Préfixes d'ID
 const ID_PREFIX = {
@@ -43,8 +51,35 @@ const catalogs = [
     // Films
     { type: 'movie', id: 'tvlegal-films', name: '🎬 Films', extra: [{ name: 'skip', isRequired: false }] },
 
-    // Séries
-    { type: 'series', id: 'tvlegal-series', name: '📺 Séries', extra: [{ name: 'skip', isRequired: false }] },
+    // Séries France.tv
+    {
+        type: 'series',
+        id: 'tvlegal-series-francetv',
+        name: '📺 Séries France.tv',
+        extra: [
+            { name: 'skip', isRequired: false },
+            {
+                name: 'genre',
+                isRequired: false,
+                options: ['Tous', 'Drame', 'Comédie', 'Policier', 'Thriller', 'Historique']
+            }
+        ]
+    },
+
+    // Séries Arte
+    {
+        type: 'series',
+        id: 'tvlegal-series-arte',
+        name: '📺 Séries Arte',
+        extra: [
+            { name: 'skip', isRequired: false },
+            {
+                name: 'genre',
+                isRequired: false,
+                options: ['Tous', 'Thriller', 'Policier', 'Comédie', 'Drame', 'Science-fiction', 'Historique']
+            }
+        ]
+    },
 
     // Documentaires
     { type: 'movie', id: 'tvlegal-docs', name: '🎥 Documentaires', extra: [{ name: 'skip', isRequired: false }] },
@@ -68,14 +103,14 @@ if (tf1.isConfigured()) {
 
 const manifest = {
     id: 'community.tvlegal.france',
-    version: '1.2.0',
+    version: '1.3.0',
     name: 'TV Legal France',
     description: 'Chaînes françaises légales : France.tv, Arte.tv, TF1+ - Films, Séries, Documentaires, Émissions',
     logo: 'https://upload.wikimedia.org/wikipedia/fr/thumb/4/43/TNT_France_logo.svg/200px-TNT_France_logo.svg.png',
     resources: ['catalog', 'meta', 'stream'],
     types: ['tv', 'movie', 'series'],
     catalogs,
-    idPrefixes: ['tvlegal:'],
+    idPrefixes: ['tvlegal:', 'tt'],
     behaviorHints: {
         configurable: false,
         configurationRequired: false
@@ -181,44 +216,64 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
             return { metas: metas.slice(skip, skip + 50) };
         }
 
-        // === SÉRIES (Arte + France.tv) ===
-        if (id === 'tvlegal-series') {
+        // === SÉRIES FRANCE.TV ===
+        if (id === 'tvlegal-series-francetv') {
             const metas = [];
+            const genre = extra?.genre;
+            const genreFilter = genre && genre !== 'Tous' ? genre : null;
 
-            // Arte Séries
-            try {
-                const arteVideos = await arte.getCategory('SER');
-                for (const video of arteVideos) {
-                    metas.push({
-                        id: `${ID_PREFIX.ARTE_VIDEO}${video.programId}`,
-                        type: 'series',
-                        name: video.title,
-                        poster: video.imageLarge || video.image,
-                        posterShape: 'poster',
-                        description: video.description || video.subtitle,
-                        background: video.imageLarge,
-                        releaseInfo: video.durationLabel
-                    });
-                }
-            } catch (e) {
-                console.error('[TV Legal] Erreur Arte Séries:', e.message);
-            }
+            // Mapping des genres français vers anglais (TMDB)
+            const genreMapping = {
+                'Thriller': ['Thriller', 'Mystery', 'Crime'],
+                'Policier': ['Crime', 'Mystery'],
+                'Comédie': ['Comedy'],
+                'Drame': ['Drama'],
+                'Historique': ['History', 'War', 'War & Politics']
+            };
 
-            // France.tv Séries & Fictions
             try {
                 const ftvVideos = await francetv.getChannelContent('series-et-fictions');
-                for (const video of ftvVideos) {
-                    if (video.isProgram) {
-                        metas.push({
-                            id: `${ID_PREFIX.FRANCETV_PROGRAM}${video.programPath}`,
-                            type: 'series',
-                            name: video.title,
-                            poster: video.poster || video.image,
-                            posterShape: 'poster',
-                            description: video.description,
-                            background: video.image
-                        });
+                const programs = ftvVideos.filter(v => v.isProgram);
+
+                // Enrichir avec TMDB en parallèle (max 10 simultanés)
+                const enrichedPrograms = await Promise.all(
+                    programs.map(async (video) => {
+                        let genres = [];
+                        if (tmdb) {
+                            try {
+                                const tmdbResults = await tmdb.searchSeries(video.title);
+                                if (tmdbResults && tmdbResults.length > 0) {
+                                    genres = tmdbResults[0].genres || [];
+                                }
+                            } catch (e) {}
+                        }
+                        return { video, genres };
+                    })
+                );
+
+                for (const { video, genres } of enrichedPrograms) {
+                    // Filtre par genre si demandé
+                    if (genreFilter) {
+                        const tmdbGenres = genreMapping[genreFilter] || [genreFilter];
+                        const hasGenre = genres.some(g =>
+                            tmdbGenres.some(tg =>
+                                g.toLowerCase().includes(tg.toLowerCase()) ||
+                                tg.toLowerCase().includes(g.toLowerCase())
+                            )
+                        );
+                        if (!hasGenre) continue;
                     }
+
+                    metas.push({
+                        id: `${ID_PREFIX.FRANCETV_PROGRAM}${video.programPath}`,
+                        type: 'series',
+                        name: video.title,
+                        poster: video.poster || video.image,
+                        posterShape: 'poster',
+                        description: video.description,
+                        background: video.image,
+                        genre: genres
+                    });
                 }
             } catch (e) {
                 console.error('[TV Legal] Erreur FranceTV Séries:', e.message);
@@ -232,7 +287,83 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                 return true;
             });
 
-            console.log(`[TV Legal] ${unique.length} séries`);
+            console.log(`[TV Legal] ${unique.length} séries France.tv (filtre: ${genre || 'aucun'})`);
+            return { metas: unique.slice(skip, skip + 50) };
+        }
+
+        // === SÉRIES ARTE ===
+        if (id === 'tvlegal-series-arte') {
+            const metas = [];
+            const genre = extra?.genre;
+            const genreFilter = genre && genre !== 'Tous' ? genre : null;
+
+            // Mapping des genres français vers anglais (TMDB) - peut matcher plusieurs genres
+            const genreMapping = {
+                'Thriller': ['Thriller', 'Mystery', 'Crime'],
+                'Policier': ['Crime', 'Mystery'],
+                'Comédie': ['Comedy'],
+                'Drame': ['Drama'],
+                'Science-fiction': ['Sci-Fi', 'Sci-Fi & Fantasy', 'Science Fiction'],
+                'Historique': ['History', 'War', 'War & Politics']
+            };
+
+            try {
+                const arteVideos = await arte.getCategory('SER');
+
+                // Enrichir avec TMDB en parallèle
+                const enrichedVideos = await Promise.all(
+                    arteVideos.map(async (video) => {
+                        let genres = [];
+                        if (tmdb) {
+                            try {
+                                const tmdbResults = await tmdb.searchSeries(video.title);
+                                if (tmdbResults && tmdbResults.length > 0) {
+                                    genres = tmdbResults[0].genres || [];
+                                }
+                            } catch (e) {}
+                        }
+                        return { video, genres };
+                    })
+                );
+
+                for (const { video, genres } of enrichedVideos) {
+                    // Filtre par genre si demandé
+                    if (genreFilter) {
+                        const tmdbGenres = genreMapping[genreFilter] || [genreFilter];
+                        const hasGenre = genres.some(g =>
+                            tmdbGenres.some(tg =>
+                                g.toLowerCase().includes(tg.toLowerCase()) ||
+                                tg.toLowerCase().includes(g.toLowerCase())
+                            )
+                        );
+                        if (!hasGenre) continue;
+                    }
+
+                    metas.push({
+                        id: `${ID_PREFIX.ARTE_VIDEO}${video.programId}`,
+                        type: 'series',
+                        name: video.title,
+                        poster: video.imageLarge || video.image,
+                        posterShape: 'poster',
+                        description: video.description || video.subtitle,
+                        background: video.imageLarge,
+                        releaseInfo: video.durationLabel,
+                        genre: genres
+                    });
+                }
+            } catch (e) {
+                console.error('[TV Legal] Erreur Arte Séries:', e.message);
+            }
+
+            // Déduplique
+            const seen = new Set();
+            const unique = metas.filter(m => {
+                if (seen.has(m.name)) return false;
+                seen.add(m.name);
+                return true;
+            });
+
+            console.log(`[TV Legal] ${unique.length} séries Arte (filtre: ${genre || 'aucun'})`);
             return { metas: unique.slice(skip, skip + 50) };
         }
 
@@ -676,6 +807,123 @@ builder.defineStreamHandler(async ({ type, id }) => {
                         behaviorHints: { notWebReady: false }
                     }]
                 };
+            }
+        }
+
+        // === IMDB ID (depuis autres catalogues) ===
+        if (id.startsWith('tt') && tmdb) {
+            console.log(`[TV Legal] Recherche IMDB: ${id}`);
+            const streams = [];
+
+            // Parse l'ID (peut être tt1234567 ou tt1234567:1:1 pour séries)
+            const parts = id.split(':');
+            const imdbId = parts[0];
+            const season = parts[1] ? parseInt(parts[1]) : null;
+            const episode = parts[2] ? parseInt(parts[2]) : null;
+
+            // Récupère le titre depuis TMDB
+            const tmdbInfo = await tmdb.findByImdbId(imdbId);
+            if (!tmdbInfo || !tmdbInfo.title) {
+                console.log(`[TV Legal] IMDB ${imdbId} non trouvé sur TMDB`);
+                return { streams: [] };
+            }
+
+            console.log(`[TV Legal] IMDB ${imdbId} → "${tmdbInfo.title}" (${tmdbInfo.type}) S${season || '?'}E${episode || '?'}`);
+
+            // Cherche sur Arte
+            try {
+                const arteCategory = tmdbInfo.type === 'series' ? 'SER' : 'CIN';
+                const arteVideos = await arte.getCategory(arteCategory);
+                const arteMatch = arteVideos.find(v =>
+                    v.title.toLowerCase() === tmdbInfo.title.toLowerCase() ||
+                    v.title.toLowerCase().includes(tmdbInfo.title.toLowerCase()) ||
+                    tmdbInfo.title.toLowerCase().includes(v.title.toLowerCase())
+                );
+
+                if (arteMatch) {
+                    console.log(`[TV Legal] Trouvé sur Arte: ${arteMatch.title} (${arteMatch.programId})`);
+
+                    // Si c'est une série avec saison/épisode, cherche l'épisode
+                    if (season && episode && arteMatch.programId.startsWith('RC-')) {
+                        const episodes = await arte.getCollectionEpisodes(arteMatch.programId);
+                        // Cherche l'épisode correspondant (index = episode - 1 pour saison 1)
+                        const epIndex = (season === 1) ? episode - 1 : episode - 1;
+                        if (episodes[epIndex]) {
+                            const streamUrl = await arte.getStreamUrl(episodes[epIndex].programId);
+                            if (streamUrl) {
+                                streams.push({
+                                    name: 'Arte',
+                                    title: `S${season}E${episode} - ${episodes[epIndex].title || arteMatch.title}\n🇫🇷 Arte - HD`,
+                                    url: streamUrl,
+                                    behaviorHints: { notWebReady: false }
+                                });
+                            }
+                        }
+                    } else {
+                        // Film ou série sans épisode spécifique
+                        const streamUrl = await arte.getStreamUrl(arteMatch.programId);
+                        if (streamUrl) {
+                            streams.push({
+                                name: 'Arte',
+                                title: `${arteMatch.title}\n🇫🇷 Arte - HD`,
+                                url: streamUrl,
+                                behaviorHints: { notWebReady: false }
+                            });
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('[TV Legal] Erreur recherche Arte:', e.message);
+            }
+
+            // Cherche sur France.tv (séries)
+            if (tmdbInfo.type === 'series') {
+                try {
+                    const ftvVideos = await francetv.getChannelContent('series-et-fictions');
+                    const ftvMatch = ftvVideos.find(v =>
+                        v.isProgram && (
+                            v.title.toLowerCase() === tmdbInfo.title.toLowerCase() ||
+                            v.title.toLowerCase().includes(tmdbInfo.title.toLowerCase()) ||
+                            tmdbInfo.title.toLowerCase().includes(v.title.toLowerCase())
+                        )
+                    );
+
+                    if (ftvMatch) {
+                        console.log(`[TV Legal] Trouvé sur France.tv: ${ftvMatch.title}`);
+                        const programInfo = await francetv.getProgramInfo(ftvMatch.programPath);
+                        if (programInfo?.episodes?.length > 0) {
+                            // Cherche l'épisode correspondant ou prend le premier
+                            let targetEp = programInfo.episodes[0];
+                            if (season && episode) {
+                                const matchingEp = programInfo.episodes.find(ep =>
+                                    ep.season === season && ep.episode === episode
+                                );
+                                if (matchingEp) targetEp = matchingEp;
+                                // Sinon essaie par index
+                                else if (programInfo.episodes[episode - 1]) {
+                                    targetEp = programInfo.episodes[episode - 1];
+                                }
+                            }
+
+                            const videoInfo = await francetv.getVideoInfo(targetEp.id);
+                            if (videoInfo?.streamUrl && !videoInfo.drm) {
+                                const epTitle = season && episode ? `S${season}E${episode} - ` : '';
+                                streams.push({
+                                    name: 'France.tv',
+                                    title: `${epTitle}${targetEp.title || ftvMatch.title}\n🇫🇷 France.tv`,
+                                    url: videoInfo.streamUrl,
+                                    behaviorHints: { notWebReady: false }
+                                });
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('[TV Legal] Erreur recherche France.tv:', e.message);
+                }
+            }
+
+            if (streams.length > 0) {
+                return { streams };
             }
         }
 
