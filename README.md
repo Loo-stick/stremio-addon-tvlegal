@@ -19,50 +19,46 @@ Addon Stremio pour accéder aux chaînes et contenus français **100% légaux** 
 git clone https://github.com/Loo-stick/stremio-addon-tvlegal.git
 cd stremio-addon-tvlegal
 npm install
+npm start
 ```
 
-### Configuration
+### Installation dans Stremio
 
-Copiez le fichier d'exemple et configurez vos credentials :
+1. Ouvrez votre navigateur sur `http://localhost:7001/configure`
+2. Configurez vos options :
+   - **Catalogues** : Sélectionnez les catalogues à afficher
+   - **Directs TV** : Activez/désactivez les chaînes en direct
+   - **TF1+** : Entrez vos identifiants pour accéder aux directs TF1, TMC, TFX, LCI
+   - **TMDB** : Ajoutez votre clé API pour le filtrage par genre (Films/Séries)
+3. Cliquez sur "Installer dans Stremio"
+
+> **Note** : France.tv et Arte fonctionnent sans configuration. TF1+ nécessite un compte gratuit. TMDB est optionnel (pour les filtres par genre).
+
+### Configuration serveur (optionnel)
+
+Pour une configuration par défaut côté serveur, créez un fichier `.env` :
 
 ```bash
 cp .env.example .env
 ```
-
-Éditez le fichier `.env` :
 
 ```env
 # Port du serveur (défaut: 7001)
 PORT=7001
 
 # TF1+ (compte gratuit requis sur tf1.fr)
-# Sans ces credentials, seuls France.tv et Arte seront disponibles
 TF1_EMAIL=votre@email.com
 TF1_PASSWORD=votremotdepasse
+
+# TMDB (pour le filtrage par genre - clé gratuite sur themoviedb.org)
+TMDB_API_KEY=votre_cle_api
 
 # Proxy SOCKS5 optionnel (pour contourner les restrictions géographiques)
 # TF1_PROXY_HOST=
 # TF1_PROXY_PORT=1080
-# TF1_PROXY_USER=
-# TF1_PROXY_PASS=
 ```
 
-> **Note** : France.tv et Arte fonctionnent sans configuration. Seul TF1+ nécessite un compte (gratuit).
-
-### Démarrage
-
-```bash
-npm start
-```
-
-L'addon sera disponible sur `http://localhost:7001/manifest.json`
-
-### Installation dans Stremio
-
-1. Ouvrez Stremio
-2. Allez dans les Addons
-3. Cliquez sur "Installer depuis une URL"
-4. Entrez : `http://localhost:7001/manifest.json`
+> Les utilisateurs peuvent aussi fournir leurs propres credentials via la page de configuration, sans avoir besoin du fichier `.env`.
 
 ## Docker
 
@@ -77,7 +73,7 @@ docker run -d \
   ghcr.io/loo-stick/stremio-addon-tvlegal:latest
 ```
 
-### Avec TF1+ (credentials)
+### Avec options
 
 ```bash
 docker run -d \
@@ -85,6 +81,7 @@ docker run -d \
   -p 7001:7001 \
   -e TF1_EMAIL=votre@email.com \
   -e TF1_PASSWORD=votremotdepasse \
+  -e TMDB_API_KEY=votre_cle_api \
   ghcr.io/loo-stick/stremio-addon-tvlegal:latest
 ```
 
@@ -102,9 +99,12 @@ services:
     environment:
       - TF1_EMAIL=votre@email.com      # Optionnel
       - TF1_PASSWORD=votremotdepasse   # Optionnel
+      - TMDB_API_KEY=votre_cle_api     # Optionnel
 ```
 
-L'addon sera disponible sur `http://localhost:7001/manifest.json`
+L'addon sera disponible sur :
+- **Configuration** : `http://localhost:7001/configure`
+- **Manifest** : `http://localhost:7001/manifest.json`
 
 ## Sources et contenus
 
@@ -116,18 +116,24 @@ L'addon sera disponible sur `http://localhost:7001/manifest.json`
 
 ### Catalogues disponibles
 
-- **Directs** - Chaînes en direct
-- **Films** - Cinéma (Arte)
-- **Séries France.tv** - Séries TV France.tv (avec filtre par genre)
-- **Séries Arte** - Séries TV Arte (avec filtre par genre)
-- **Documentaires** - Documentaires (Arte)
-- **Émissions TV** - Émissions diverses (France.tv)
-- **Sport** - Contenus sportifs (France.tv)
-- **Rugby** - Rugby (France.tv)
+| Catalogue | Source | Filtres par genre |
+|-----------|--------|-------------------|
+| Directs | France.tv, Arte, TF1+ | - |
+| Films | Arte | Drame, Comédie, Thriller, Action, etc. (TMDB) |
+| Séries France.tv | France.tv | Drame, Comédie, Policier, etc. (TMDB) |
+| Séries Arte | Arte | Thriller, Policier, Comédie, etc. (TMDB) |
+| Docs Arte | Arte | Histoire, Société, Culture, Nature, Sciences |
+| Docs France.tv | France.tv | Histoire, Société, Nature, Culture |
+| Émissions TV | France.tv | - |
+| Sport | France.tv | - |
+| Rugby | France.tv | - |
 
 ### Filtres par genre
 
-Les catalogues Séries supportent le filtrage par genre (Thriller, Policier, Comédie, Drame, etc.) grâce à l'intégration TMDB.
+- **Films et Séries** : Filtrage via TMDB (clé API requise)
+- **Documentaires** : Filtrage natif via les catégories Arte/France.tv (pas de clé requise)
+
+> Sans clé TMDB, les options de genre pour Films/Séries sont masquées. Les filtres Documentaires fonctionnent toujours.
 
 ### Compatibilité IMDB
 
@@ -205,9 +211,10 @@ Cet addon est un projet **personnel et non commercial** qui agrège des contenus
 - L'utilisateur est seul responsable de la légalité de l'utilisation dans sa juridiction
 
 **Usage des credentials :**
-- Les identifiants TF1+ que vous fournissez sont stockés localement sur votre machine
-- Ils ne sont jamais transmis à des tiers autres que TF1.fr pour l'authentification
+- Les identifiants TF1+ et clés API sont encodés dans l'URL de l'addon
+- Ils ne sont jamais transmis à des tiers autres que les services concernés (TF1.fr, TMDB)
 - Vous êtes responsable de la sécurité de vos propres identifiants
+- Vous pouvez reconfigurer l'addon à tout moment via le bouton "Configure" dans Stremio
 
 ### English
 
@@ -229,6 +236,7 @@ This addon is a **personal, non-commercial project** that aggregates content exc
 - Users are solely responsible for the legality of use in their jurisdiction
 
 **Credentials usage:**
-- TF1+ credentials you provide are stored locally on your machine
-- They are never transmitted to third parties other than TF1.fr for authentication
+- TF1+ credentials and API keys are encoded in the addon URL
+- They are never transmitted to third parties other than the relevant services (TF1.fr, TMDB)
 - You are responsible for the security of your own credentials
+- You can reconfigure the addon at any time via the "Configure" button in Stremio

@@ -14,6 +14,7 @@ require('dotenv').config();
 
 const { addonBuilder, getRouter } = require('stremio-addon-sdk');
 const express = require('express');
+const path = require('path');
 const FranceTVClient = require('./lib/francetv');
 const ArteClient = require('./lib/arte');
 const TF1Client = require('./lib/tf1');
@@ -21,13 +22,56 @@ const TMDBClient = require('./lib/tmdb');
 
 const PORT = process.env.PORT || 7001;
 
-// Clients
+// Clients par défaut (utilisent les variables d'environnement)
 const francetv = new FranceTVClient();
 const arte = new ArteClient();
-const tf1 = new TF1Client();
-const tmdb = process.env.TMDB_API_KEY ? new TMDBClient(process.env.TMDB_API_KEY) : null;
+const tf1Default = new TF1Client();
+const tmdbDefault = process.env.TMDB_API_KEY ? new TMDBClient(process.env.TMDB_API_KEY) : null;
 
-if (tmdb) {
+// Cache des clients TF1/TMDB par config
+const tf1Clients = new Map();
+const tmdbClients = new Map();
+
+/**
+ * Parse la configuration depuis l'URL encodée en base64
+ */
+function parseConfig(encodedConfig) {
+    try {
+        const json = Buffer.from(encodedConfig, 'base64').toString('utf-8');
+        return JSON.parse(json);
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Récupère ou crée un client TF1 pour une config
+ */
+function getTF1Client(config) {
+    if (!config?.tf1Email || !config?.tf1Password) {
+        return tf1Default;
+    }
+    const key = `${config.tf1Email}:${config.tf1Password}`;
+    if (!tf1Clients.has(key)) {
+        tf1Clients.set(key, new TF1Client(config.tf1Email, config.tf1Password));
+    }
+    return tf1Clients.get(key);
+}
+
+/**
+ * Récupère ou crée un client TMDB pour une config
+ */
+function getTMDBClient(config) {
+    if (!config?.tmdbKey) {
+        return tmdbDefault;
+    }
+    if (!tmdbClients.has(config.tmdbKey)) {
+        tmdbClients.set(config.tmdbKey, new TMDBClient(config.tmdbKey));
+    }
+    return tmdbClients.get(config.tmdbKey);
+}
+
+if (tmdbDefault) {
     console.log('[TV Legal] TMDB configuré (genres disponibles)');
 } else {
     console.log('[TV Legal] TMDB non configuré (pas de filtrage par genre)');
@@ -43,120 +87,149 @@ const ID_PREFIX = {
     TF1_LIVE: 'tvlegal:tf1:live:'
 };
 
-// Configuration des catalogues
-const catalogs = [
-    // Directs
-    { type: 'tv', id: 'tvlegal-live', name: '📺 Directs' },
-
-    // Films
-    {
+// Tous les catalogues disponibles (clé = valeur dans config.catalogs)
+const ALL_CATALOGS = {
+    'live': { type: 'tv', id: 'tvlegal-live', name: '📺 Directs' },
+    'films': {
         type: 'movie',
         id: 'tvlegal-films',
         name: '🎬 Films',
         extra: [
             { name: 'skip', isRequired: false },
-            {
-                name: 'genre',
-                isRequired: false,
-                options: ['Tous', 'Drame', 'Comédie', 'Thriller', 'Action', 'Science-fiction', 'Historique', 'Romance']
-            }
+            { name: 'genre', isRequired: false, options: ['Tous', 'Drame', 'Comédie', 'Thriller', 'Action', 'Science-fiction', 'Historique', 'Romance'] }
         ]
     },
-
-    // Séries France.tv
-    {
+    'series-francetv': {
         type: 'series',
         id: 'tvlegal-series-francetv',
         name: '📺 Séries France.tv',
         extra: [
             { name: 'skip', isRequired: false },
-            {
-                name: 'genre',
-                isRequired: false,
-                options: ['Tous', 'Drame', 'Comédie', 'Policier', 'Thriller', 'Historique']
-            }
+            { name: 'genre', isRequired: false, options: ['Tous', 'Drame', 'Comédie', 'Policier', 'Thriller', 'Historique'] }
         ]
     },
-
-    // Séries Arte
-    {
+    'series-arte': {
         type: 'series',
         id: 'tvlegal-series-arte',
         name: '📺 Séries Arte',
         extra: [
             { name: 'skip', isRequired: false },
-            {
-                name: 'genre',
-                isRequired: false,
-                options: ['Tous', 'Thriller', 'Policier', 'Comédie', 'Drame', 'Science-fiction', 'Historique']
-            }
+            { name: 'genre', isRequired: false, options: ['Tous', 'Thriller', 'Policier', 'Comédie', 'Drame', 'Science-fiction', 'Historique'] }
         ]
     },
-
-    // Documentaires Arte
-    {
+    'docs-arte': {
         type: 'movie',
         id: 'tvlegal-docs-arte',
         name: '🎥 Docs Arte',
         extra: [
             { name: 'skip', isRequired: false },
-            {
-                name: 'genre',
-                isRequired: false,
-                options: ['Tous', 'Histoire', 'Société', 'Culture', 'Nature', 'Sciences']
-            }
+            { name: 'genre', isRequired: false, options: ['Tous', 'Histoire', 'Société', 'Culture', 'Nature', 'Sciences'] }
         ]
     },
-
-    // Documentaires France.tv
-    {
+    'docs-francetv': {
         type: 'movie',
         id: 'tvlegal-docs-francetv',
         name: '📺 Docs France.tv',
         extra: [
             { name: 'skip', isRequired: false },
-            {
-                name: 'genre',
-                isRequired: false,
-                options: ['Tous', 'Histoire', 'Société', 'Nature', 'Culture']
-            }
+            { name: 'genre', isRequired: false, options: ['Tous', 'Histoire', 'Société', 'Nature', 'Culture'] }
         ]
     },
+    'emissions': { type: 'movie', id: 'tvlegal-emissions', name: '📡 Émissions TV', extra: [{ name: 'skip', isRequired: false }] },
+    'sport': { type: 'movie', id: 'tvlegal-sport', name: '⚽ Sport', extra: [{ name: 'skip', isRequired: false }] },
+    'rugby': { type: 'movie', id: 'tvlegal-rugby', name: '🏉 Rugby', extra: [{ name: 'skip', isRequired: false }] }
+};
 
-    // Émissions TV
-    { type: 'movie', id: 'tvlegal-emissions', name: '📡 Émissions TV', extra: [{ name: 'skip', isRequired: false }] },
+// Ordre par défaut des catalogues
+const DEFAULT_CATALOG_ORDER = ['live', 'films', 'series-francetv', 'series-arte', 'docs-arte', 'docs-francetv', 'emissions', 'sport', 'rugby'];
 
-    // Sport
-    { type: 'movie', id: 'tvlegal-sport', name: '⚽ Sport', extra: [{ name: 'skip', isRequired: false }] },
+/**
+ * Génère la liste des catalogues selon la configuration
+ */
+function getCatalogs(config) {
+    // Si pas de config, retourne tous les catalogues
+    if (!config) {
+        return DEFAULT_CATALOG_ORDER.map(key => ALL_CATALOGS[key]);
+    }
 
-    // Rugby
-    { type: 'movie', id: 'tvlegal-rugby', name: '🏉 Rugby', extra: [{ name: 'skip', isRequired: false }] }
-];
+    const catalogs = [];
+
+    // Ajoute les directs si activé
+    if (config.live !== false) {
+        catalogs.push(ALL_CATALOGS['live']);
+    }
+
+    // Ajoute les catalogues sélectionnés
+    if (config.catalogs && Array.isArray(config.catalogs)) {
+        for (const key of config.catalogs) {
+            if (ALL_CATALOGS[key]) {
+                catalogs.push(ALL_CATALOGS[key]);
+            }
+        }
+    } else {
+        // Par défaut, tous les catalogues sauf live (déjà ajouté)
+        for (const key of DEFAULT_CATALOG_ORDER) {
+            if (key !== 'live' && ALL_CATALOGS[key]) {
+                catalogs.push(ALL_CATALOGS[key]);
+            }
+        }
+    }
+
+    return catalogs;
+}
+
+/**
+ * Vérifie si TMDB est disponible (via config ou env)
+ */
+function hasTMDB(config) {
+    return !!(config?.tmdbKey || process.env.TMDB_API_KEY);
+}
+
+/**
+ * Génère le manifest selon la configuration
+ */
+function getManifest(config) {
+    const tmdbAvailable = hasTMDB(config);
+    const catalogs = getCatalogs(config).map(catalog => {
+        // Retire l'option genre des Films/Séries si pas de TMDB
+        if (!tmdbAvailable && catalog.extra) {
+            const needsTMDB = ['tvlegal-films', 'tvlegal-series-francetv', 'tvlegal-series-arte'];
+            if (needsTMDB.includes(catalog.id)) {
+                return {
+                    ...catalog,
+                    extra: catalog.extra.filter(e => e.name !== 'genre')
+                };
+            }
+        }
+        return catalog;
+    });
+
+    return {
+        id: 'community.tvlegal.france',
+        version: '1.4.0',
+        name: 'TV Legal France',
+        description: 'Chaînes françaises légales : France.tv, Arte.tv, TF1+ - Films, Séries, Documentaires, Émissions',
+        logo: 'https://upload.wikimedia.org/wikipedia/fr/thumb/4/43/TNT_France_logo.svg/200px-TNT_France_logo.svg.png',
+        resources: ['catalog', 'meta', 'stream'],
+        types: ['tv', 'movie', 'series'],
+        catalogs: catalogs,
+        idPrefixes: ['tvlegal:', 'tt'],
+        behaviorHints: {
+            configurable: true,
+            configurationRequired: false
+        }
+    };
+}
 
 // Ajoute le catalogue TF1 si configuré
-if (tf1.isConfigured()) {
+if (tf1Default.isConfigured()) {
     console.log('[TV Legal] TF1+ configuré (credentials détectés)');
 } else {
     console.log('[TV Legal] TF1+ non configuré (TF1_EMAIL/TF1_PASSWORD absents)');
 }
 
-const manifest = {
-    id: 'community.tvlegal.france',
-    version: '1.3.1',
-    name: 'TV Legal France',
-    description: 'Chaînes françaises légales : France.tv, Arte.tv, TF1+ - Films, Séries, Documentaires, Émissions',
-    logo: 'https://upload.wikimedia.org/wikipedia/fr/thumb/4/43/TNT_France_logo.svg/200px-TNT_France_logo.svg.png',
-    resources: ['catalog', 'meta', 'stream'],
-    types: ['tv', 'movie', 'series'],
-    catalogs,
-    idPrefixes: ['tvlegal:', 'tt'],
-    behaviorHints: {
-        configurable: false,
-        configurationRequired: false
-    }
-};
-
-const builder = new addonBuilder(manifest);
+// Builder par défaut (sans config)
+const builder = new addonBuilder(getManifest(null));
 
 /**
  * Catalog Handler
@@ -164,6 +237,10 @@ const builder = new addonBuilder(manifest);
 builder.defineCatalogHandler(async ({ type, id, extra }) => {
     console.log(`[TV Legal] Catalogue: ${type}/${id}`);
     const skip = parseInt(extra?.skip) || 0;
+
+    // Récupère les clients selon la config (utilise currentConfig défini par le middleware)
+    const tmdb = getTMDBClient(currentConfig);
+    const tf1 = getTF1Client(currentConfig);
 
     try {
         // === DIRECTS ===
@@ -252,8 +329,8 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
             try {
                 const videos = await arte.getCategory('CIN', artePage);
 
-                // Sans filtre, on retourne directement
-                if (!genreFilter) {
+                // Sans filtre ou sans TMDB, on retourne directement
+                if (!genreFilter || !tmdb) {
                     for (const video of videos) {
                         metas.push({
                             id: `${ID_PREFIX.ARTE_VIDEO}${video.programId}`,
@@ -266,7 +343,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                             releaseInfo: video.durationLabel
                         });
                     }
-                } else if (tmdb) {
+                } else {
                     // Avec filtre: traiter par lots de 5 pour éviter trop de requêtes simultanées
                     const BATCH_SIZE = 5;
                     const tmdbGenres = genreMapping[genreFilter] || [genreFilter];
@@ -355,8 +432,8 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                 );
 
                 for (const { video, genres } of enrichedPrograms) {
-                    // Filtre par genre si demandé
-                    if (genreFilter) {
+                    // Filtre par genre si demandé (et TMDB disponible)
+                    if (genreFilter && tmdb) {
                         const tmdbGenres = genreMapping[genreFilter] || [genreFilter];
                         const hasGenre = genres.some(g =>
                             tmdbGenres.some(tg =>
@@ -433,8 +510,8 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                 );
 
                 for (const { video, genres } of enrichedVideos) {
-                    // Filtre par genre si demandé
-                    if (genreFilter) {
+                    // Filtre par genre si demandé (et TMDB disponible)
+                    if (genreFilter && tmdb) {
                         const tmdbGenres = genreMapping[genreFilter] || [genreFilter];
                         const hasGenre = genres.some(g =>
                             tmdbGenres.some(tg =>
@@ -680,6 +757,9 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
 builder.defineMetaHandler(async ({ type, id }) => {
     console.log(`[TV Legal] Meta: ${id}`);
 
+    // Récupère le client TF1 selon la config
+    const tf1 = getTF1Client(currentConfig);
+
     try {
         // France.tv Live
         if (id.startsWith(ID_PREFIX.FRANCETV_LIVE)) {
@@ -841,6 +921,10 @@ builder.defineMetaHandler(async ({ type, id }) => {
  */
 builder.defineStreamHandler(async ({ type, id }) => {
     console.log(`[TV Legal] Stream: ${id}`);
+
+    // Récupère les clients selon la config
+    const tmdb = getTMDBClient(currentConfig);
+    const tf1 = getTF1Client(currentConfig);
 
     try {
         // France.tv Live
@@ -1124,25 +1208,72 @@ app.use((req, res, next) => {
     next();
 });
 
-// Routes Stremio SDK
+// Page de configuration
+app.get('/configure', (req, res) => {
+    res.sendFile(path.join(__dirname, 'configure.html'));
+});
+
+// Page de configuration avec config existante (pour reconfigurer depuis Stremio)
+app.get('/:config/configure', (req, res) => {
+    res.sendFile(path.join(__dirname, 'configure.html'));
+});
+
+// Redirection racine vers configure
+app.get('/', (req, res) => {
+    res.redirect('/configure');
+});
+
+// Manifest par défaut (sans config) - DOIT être avant /:config
+app.get('/manifest.json', (req, res) => {
+    res.json(getManifest(null));
+});
+
+// Routes avec configuration encodée
+app.get('/:config/manifest.json', (req, res) => {
+    const config = parseConfig(req.params.config);
+    if (!config) {
+        return res.status(400).json({ error: 'Invalid configuration' });
+    }
+    res.json(getManifest(config));
+});
+
+// Stockage temporaire de la config pour les handlers
+let currentConfig = null;
+
+// Routes Stremio SDK par défaut (sans config) - gère /catalog, /meta, /stream
 app.use(getRouter(builder.getInterface()));
+
+// Middleware pour parser la config des routes Stremio (/:config/catalog, etc.)
+app.use('/:config', (req, res, next) => {
+    const config = parseConfig(req.params.config);
+    if (!config) {
+        // Config invalide - pas une route avec config
+        return next('route');
+    }
+    req.userConfig = config;
+    currentConfig = config;
+    next();
+});
+
+// Routes Stremio SDK avec config (/:config/catalog, /:config/meta, /:config/stream)
+app.use('/:config', getRouter(builder.getInterface()));
 
 // Démarrage du serveur
 app.listen(PORT, () => {
     console.log(`
 ╔════════════════════════════════════════════════════╗
-║           TV Legal France - Stremio v1.1           ║
+║         TV Legal France - Stremio v1.4.0           ║
 ╠════════════════════════════════════════════════════╣
 ║  Sources légales :                                 ║
 ║  ✓ France.tv (direct + replay)                     ║
 ║  ✓ Arte.tv (direct + replay)                       ║
-║  ${tf1.isConfigured() ? '✓' : '○'} TF1+ (direct) ${tf1.isConfigured() ? '' : '- non configuré'}                     ║
+║  ${tf1Default.isConfigured() ? '✓' : '○'} TF1+ (direct) ${tf1Default.isConfigured() ? '' : '- non configuré'}                     ║
 ╠════════════════════════════════════════════════════╣
 ║  Catalogues :                                      ║
 ║  📺 Directs  🎬 Films  📺 Séries  🎥 Docs          ║
 ║  📡 Émissions  ⚽ Sport  🏉 Rugby                  ║
 ╠════════════════════════════════════════════════════╣
-║  Port: ${PORT}                                          ║
+║  Configuration: http://localhost:${PORT}/configure      ║
 ║  Manifest: http://localhost:${PORT}/manifest.json       ║
 ╚════════════════════════════════════════════════════╝
 `);
