@@ -1,6 +1,6 @@
 {
   "name": "stremio-addon-tvlegal",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Addon Stremio pour la TV française légale (France.tv, Arte, TF1+)",
   "main": "index.js",
   "scripts": {

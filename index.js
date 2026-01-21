@@ -49,7 +49,19 @@ const catalogs = [
     { type: 'tv', id: 'tvlegal-live', name: '📺 Directs' },
 
     // Films
-    { type: 'movie', id: 'tvlegal-films', name: '🎬 Films', extra: [{ name: 'skip', isRequired: false }] },
+    {
+        type: 'movie',
+        id: 'tvlegal-films',
+        name: '🎬 Films',
+        extra: [
+            { name: 'skip', isRequired: false },
+            {
+                name: 'genre',
+                isRequired: false,
+                options: ['Tous', 'Drame', 'Comédie', 'Thriller', 'Action', 'Science-fiction', 'Historique', 'Romance']
+            }
+        ]
+    },
 
     // Séries France.tv
     {
@@ -103,7 +115,7 @@ if (tf1.isConfigured()) {
 
 const manifest = {
     id: 'community.tvlegal.france',
-    version: '1.3.0',
+    version: '1.3.1',
     name: 'TV Legal France',
     description: 'Chaînes françaises légales : France.tv, Arte.tv, TF1+ - Films, Séries, Documentaires, Émissions',
     logo: 'https://upload.wikimedia.org/wikipedia/fr/thumb/4/43/TNT_France_logo.svg/200px-TNT_France_logo.svg.png',
@@ -193,26 +205,87 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
         // === FILMS (Arte Cinéma) ===
         if (id === 'tvlegal-films') {
             const metas = [];
+            const genre = extra?.genre;
+            const genreFilter = genre && genre !== 'Tous' ? genre : null;
+
+            // Mapping des genres français vers anglais (TMDB)
+            const genreMapping = {
+                'Thriller': ['Thriller', 'Mystery', 'Crime'],
+                'Action': ['Action', 'Adventure'],
+                'Comédie': ['Comedy'],
+                'Drame': ['Drama'],
+                'Science-fiction': ['Science Fiction', 'Sci-Fi'],
+                'Historique': ['History', 'War'],
+                'Romance': ['Romance']
+            };
 
             try {
                 const videos = await arte.getCategory('CIN');
-                for (const video of videos) {
-                    metas.push({
-                        id: `${ID_PREFIX.ARTE_VIDEO}${video.programId}`,
-                        type: 'movie',
-                        name: video.title,
-                        poster: video.imageLarge || video.image,
-                        posterShape: 'poster',
-                        description: video.description || video.subtitle,
-                        background: video.imageLarge,
-                        releaseInfo: video.durationLabel
-                    });
+
+                // Sans filtre, on retourne directement
+                if (!genreFilter) {
+                    for (const video of videos) {
+                        metas.push({
+                            id: `${ID_PREFIX.ARTE_VIDEO}${video.programId}`,
+                            type: 'movie',
+                            name: video.title,
+                            poster: video.imageLarge || video.image,
+                            posterShape: 'poster',
+                            description: video.description || video.subtitle,
+                            background: video.imageLarge,
+                            releaseInfo: video.durationLabel
+                        });
+                    }
+                } else if (tmdb) {
+                    // Avec filtre: traiter par lots de 5 pour éviter trop de requêtes simultanées
+                    const BATCH_SIZE = 5;
+                    const tmdbGenres = genreMapping[genreFilter] || [genreFilter];
+
+                    for (let i = 0; i < videos.length; i += BATCH_SIZE) {
+                        const batch = videos.slice(i, i + BATCH_SIZE);
+                        const results = await Promise.all(
+                            batch.map(async (video) => {
+                                try {
+                                    const tmdbResults = await tmdb.searchMovies(video.title);
+                                    const genres = tmdbResults?.[0]?.genres || [];
+                                    const hasGenre = genres.some(g =>
+                                        tmdbGenres.some(tg =>
+                                            g.toLowerCase().includes(tg.toLowerCase()) ||
+                                            tg.toLowerCase().includes(g.toLowerCase())
+                                        )
+                                    );
+                                    return hasGenre ? { video, genres } : null;
+                                } catch (e) {
+                                    return null;
+                                }
+                            })
+                        );
+
+                        for (const result of results) {
+                            if (result) {
+                                metas.push({
+                                    id: `${ID_PREFIX.ARTE_VIDEO}${result.video.programId}`,
+                                    type: 'movie',
+                                    name: result.video.title,
+                                    poster: result.video.imageLarge || result.video.image,
+                                    posterShape: 'poster',
+                                    description: result.video.description || result.video.subtitle,
+                                    background: result.video.imageLarge,
+                                    releaseInfo: result.video.durationLabel,
+                                    genre: result.genres
+                                });
+                            }
+                        }
+
+                        // Stop si on a assez de résultats
+                        if (metas.length >= 50) break;
+                    }
                 }
             } catch (e) {
                 console.error('[TV Legal] Erreur Arte Films:', e.message);
             }
 
-            console.log(`[TV Legal] ${metas.length} films`);
+            console.log(`[TV Legal] ${metas.length} films (filtre: ${genre || 'aucun'})`);
             return { metas: metas.slice(skip, skip + 50) };
         }
 
