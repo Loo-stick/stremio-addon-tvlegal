@@ -94,7 +94,19 @@ const catalogs = [
     },
 
     // Documentaires
-    { type: 'movie', id: 'tvlegal-docs', name: '🎥 Documentaires', extra: [{ name: 'skip', isRequired: false }] },
+    {
+        type: 'movie',
+        id: 'tvlegal-docs',
+        name: '🎥 Documentaires',
+        extra: [
+            { name: 'skip', isRequired: false },
+            {
+                name: 'genre',
+                isRequired: false,
+                options: ['Tous', 'Histoire', 'Société', 'Culture', 'Nature', 'Sciences']
+            }
+        ]
+    },
 
     // Émissions TV
     { type: 'movie', id: 'tvlegal-emissions', name: '📡 Émissions TV', extra: [{ name: 'skip', isRequired: false }] },
@@ -443,10 +455,39 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
         // === DOCUMENTAIRES (Arte) ===
         if (id === 'tvlegal-docs') {
             const metas = [];
+            const genre = extra?.genre;
+            const genreFilter = genre && genre !== 'Tous' ? genre : null;
+
+            // Mapping des genres vers les zones Arte
+            const arteZones = {
+                'Histoire': ['06478610-af88-4495-afeb-bd6e58b46524'],
+                'Société': ['7f707109-8033-4984-bfa6-28cc4afd35d6'],
+                'Culture': ['5d00159c-8d93-46b6-9c98-0fdbf968c165'],
+                'Nature': ['f5cec907-b485-489b-ab8e-ace8082f631c', '37c9c803-6e7d-40a1-8392-cf45d8f1b4c9'],
+                'Sciences': ['83e3dc30-3233-47e9-b916-394ab1535b19']
+            };
 
             try {
-                const videos = await arte.getCategory('DOR');
+                let videos = [];
+
+                if (!genreFilter) {
+                    // Sans filtre: récupère tous les docs
+                    videos = await arte.getCategory('DOR');
+                } else {
+                    // Avec filtre: récupère les zones correspondantes
+                    const zoneIds = arteZones[genreFilter] || [];
+                    for (const zoneId of zoneIds) {
+                        const zoneVideos = await arte.getZone(zoneId, 'DOR');
+                        videos.push(...zoneVideos);
+                    }
+                }
+
+                // Déduplique par programId
+                const seen = new Set();
                 for (const video of videos) {
+                    if (seen.has(video.programId)) continue;
+                    seen.add(video.programId);
+
                     metas.push({
                         id: `${ID_PREFIX.ARTE_VIDEO}${video.programId}`,
                         type: 'movie',
@@ -462,7 +503,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                 console.error('[TV Legal] Erreur Arte Docs:', e.message);
             }
 
-            console.log(`[TV Legal] ${metas.length} documentaires`);
+            console.log(`[TV Legal] ${metas.length} documentaires (filtre: ${genre || 'aucun'})`);
             return { metas: metas.slice(skip, skip + 50) };
         }
 
