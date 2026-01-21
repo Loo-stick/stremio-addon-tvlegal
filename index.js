@@ -93,17 +93,32 @@ const catalogs = [
         ]
     },
 
-    // Documentaires
+    // Documentaires Arte
     {
         type: 'movie',
-        id: 'tvlegal-docs',
-        name: '🎥 Documentaires',
+        id: 'tvlegal-docs-arte',
+        name: '🎥 Docs Arte',
         extra: [
             { name: 'skip', isRequired: false },
             {
                 name: 'genre',
                 isRequired: false,
                 options: ['Tous', 'Histoire', 'Société', 'Culture', 'Nature', 'Sciences']
+            }
+        ]
+    },
+
+    // Documentaires France.tv
+    {
+        type: 'movie',
+        id: 'tvlegal-docs-francetv',
+        name: '📺 Docs France.tv',
+        extra: [
+            { name: 'skip', isRequired: false },
+            {
+                name: 'genre',
+                isRequired: false,
+                options: ['Tous', 'Histoire', 'Société', 'Nature', 'Culture']
             }
         ]
     },
@@ -231,8 +246,11 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                 'Romance': ['Romance']
             };
 
+            // Calcul de la page Arte depuis skip (50 items par page Stremio)
+            const artePage = Math.floor(skip / 50) + 1;
+
             try {
-                const videos = await arte.getCategory('CIN');
+                const videos = await arte.getCategory('CIN', artePage);
 
                 // Sans filtre, on retourne directement
                 if (!genreFilter) {
@@ -297,8 +315,8 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                 console.error('[TV Legal] Erreur Arte Films:', e.message);
             }
 
-            console.log(`[TV Legal] ${metas.length} films (filtre: ${genre || 'aucun'})`);
-            return { metas: metas.slice(skip, skip + 50) };
+            console.log(`[TV Legal] ${metas.length} films (filtre: ${genre || 'aucun'}, page: ${artePage})`);
+            return { metas };
         }
 
         // === SÉRIES FRANCE.TV ===
@@ -392,8 +410,11 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                 'Historique': ['History', 'War', 'War & Politics']
             };
 
+            // Pagination à la demande
+            const artePage = Math.floor(skip / 50) + 1;
+
             try {
-                const arteVideos = await arte.getCategory('SER');
+                const arteVideos = await arte.getCategory('SER', artePage);
 
                 // Enrichir avec TMDB en parallèle
                 const enrichedVideos = await Promise.all(
@@ -448,12 +469,12 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                 return true;
             });
 
-            console.log(`[TV Legal] ${unique.length} séries Arte (filtre: ${genre || 'aucun'})`);
-            return { metas: unique.slice(skip, skip + 50) };
+            console.log(`[TV Legal] ${unique.length} séries Arte (filtre: ${genre || 'aucun'}, page: ${artePage})`);
+            return { metas: unique };
         }
 
-        // === DOCUMENTAIRES (Arte) ===
-        if (id === 'tvlegal-docs') {
+        // === DOCUMENTAIRES ARTE ===
+        if (id === 'tvlegal-docs-arte') {
             const metas = [];
             const genre = extra?.genre;
             const genreFilter = genre && genre !== 'Tous' ? genre : null;
@@ -467,17 +488,20 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                 'Sciences': ['83e3dc30-3233-47e9-b916-394ab1535b19']
             };
 
+            // Pagination à la demande
+            const artePage = Math.floor(skip / 50) + 1;
+
             try {
                 let videos = [];
 
                 if (!genreFilter) {
-                    // Sans filtre: récupère tous les docs
-                    videos = await arte.getCategory('DOR');
+                    // Sans filtre: récupère les docs avec pagination
+                    videos = await arte.getCategory('DOR', artePage);
                 } else {
-                    // Avec filtre: récupère les zones correspondantes
+                    // Avec filtre: récupère les zones correspondantes avec pagination
                     const zoneIds = arteZones[genreFilter] || [];
                     for (const zoneId of zoneIds) {
-                        const zoneVideos = await arte.getZone(zoneId, 'DOR');
+                        const zoneVideos = await arte.getZone(zoneId, 'DOR', artePage);
                         videos.push(...zoneVideos);
                     }
                 }
@@ -503,7 +527,48 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                 console.error('[TV Legal] Erreur Arte Docs:', e.message);
             }
 
-            console.log(`[TV Legal] ${metas.length} documentaires (filtre: ${genre || 'aucun'})`);
+            console.log(`[TV Legal] ${metas.length} docs Arte (filtre: ${genre || 'aucun'}, page: ${artePage})`);
+            return { metas };
+        }
+
+        // === DOCUMENTAIRES FRANCE.TV ===
+        if (id === 'tvlegal-docs-francetv') {
+            const metas = [];
+            const genre = extra?.genre;
+            const genreFilter = genre && genre !== 'Tous' ? genre : null;
+
+            // Mapping des genres vers les IDs de collections France.tv
+            const ftvCollections = {
+                'Histoire': [18139269, 18279141],      // "Ils ont marqué l'histoire", "Il y a fort longtemps"
+                'Société': [18627612, 18847962],       // "Comprendre la marche du monde", "Une fenêtre sur le monde"
+                'Nature': [18847980, 18304116],        // "Merveilleuse planète", "Au cœur de la vie sauvage"
+                'Culture': [18504090, 18506901]        // "Figures du 7e art", "Figures musicales"
+            };
+
+            try {
+                const collectionIds = genreFilter ? ftvCollections[genreFilter] : null;
+                const videos = await francetv.getDocumentaries(collectionIds);
+
+                for (const video of videos) {
+                    const metaId = video.isProgram
+                        ? `${ID_PREFIX.FRANCETV_PROGRAM}${video.programPath}`
+                        : `${ID_PREFIX.FRANCETV_VIDEO}${video.id}`;
+
+                    metas.push({
+                        id: metaId,
+                        type: 'movie',
+                        name: video.title,
+                        poster: video.poster || video.image,
+                        posterShape: video.poster ? 'poster' : 'landscape',
+                        description: video.description,
+                        background: video.image
+                    });
+                }
+            } catch (e) {
+                console.error('[TV Legal] Erreur FranceTV Docs:', e.message);
+            }
+
+            console.log(`[TV Legal] ${metas.length} docs France.tv (filtre: ${genre || 'aucun'})`);
             return { metas: metas.slice(skip, skip + 50) };
         }
 
