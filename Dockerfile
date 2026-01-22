@@ -10,6 +10,7 @@ RUN npm ci --only=production
 
 # Copie du code source
 COPY index.js ./
+COPY configure.html ./
 COPY lib/ ./lib/
 
 # Port par défaut
