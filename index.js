@@ -575,10 +575,20 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                     // Sans filtre: récupère les docs avec pagination
                     videos = await arte.getCategory('DOR', artePage);
                 } else {
-                    // Avec filtre: récupère les zones correspondantes avec pagination
+                    // Avec filtre: récupère les zones correspondantes
+                    // Les zones Arte ont ~10 items/page, Stremio attend 50
+                    // Donc on charge 5 pages Arte par page Stremio
                     const zoneIds = arteZones[genreFilter] || [];
+                    const arteStartPage = (artePage - 1) * 5 + 1;
+
+                    const allPromises = [];
                     for (const zoneId of zoneIds) {
-                        const zoneVideos = await arte.getZone(zoneId, 'DOR', artePage);
+                        for (let p = arteStartPage; p < arteStartPage + 5; p++) {
+                            allPromises.push(arte.getZone(zoneId, 'DOR', p).catch(() => []));
+                        }
+                    }
+                    const results = await Promise.all(allPromises);
+                    for (const zoneVideos of results) {
                         videos.push(...zoneVideos);
                     }
                 }
