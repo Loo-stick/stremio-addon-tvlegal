@@ -672,26 +672,22 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
             try {
                 let videos = [];
 
-                if (!genreFilter) {
-                    // Sans filtre: récupère les docs avec pagination et filtre par type
-                    videos = await arte.getCategory('DOR', artePage, filterType);
-                } else {
-                    // Avec filtre: récupère les zones correspondantes
-                    // Les zones Arte ont ~10 items/page, Stremio attend 50
-                    // Donc on charge 5 pages Arte par page Stremio
-                    const zoneIds = arteZones[genreFilter] || [];
-                    const arteStartPage = (artePage - 1) * 5 + 1;
+                // Pour séries: ratio 1:4, donc plus de pages. Pour films: 5 pages suffit
+                const pagesPerRequest = isSeriesMode ? 10 : 5;
+                const arteStartPage = (artePage - 1) * pagesPerRequest + 1;
 
-                    const allPromises = [];
-                    for (const zoneId of zoneIds) {
-                        for (let p = arteStartPage; p < arteStartPage + 5; p++) {
-                            allPromises.push(arte.getZone(zoneId, 'DOR', p, filterType).catch(() => []));
-                        }
+                // Toujours utiliser les zones (plus de contenu que la catégorie)
+                const zoneIds = genreFilter ? (arteZones[genreFilter] || []) : Object.values(arteZones).flat();
+
+                const allPromises = [];
+                for (const zoneId of zoneIds) {
+                    for (let p = arteStartPage; p < arteStartPage + pagesPerRequest; p++) {
+                        allPromises.push(arte.getZone(zoneId, 'DOR', p, filterType).catch(() => []));
                     }
-                    const results = await Promise.all(allPromises);
-                    for (const zoneVideos of results) {
-                        videos.push(...zoneVideos);
-                    }
+                }
+                const results = await Promise.all(allPromises);
+                for (const zoneVideos of results) {
+                    videos.push(...zoneVideos);
                 }
 
                 // Déduplique par programId
@@ -967,11 +963,11 @@ builder.defineMetaHandler(async ({ type, id }) => {
                 const episodes = await arte.getCollectionEpisodes(programId);
                 const meta = await arte.getVideoMeta(programId);
 
-                const videos = episodes.map((ep, index) => ({
+                const videos = episodes.map((ep) => ({
                     id: `${ID_PREFIX.ARTE_VIDEO}${ep.programId}`,
                     title: ep.subtitle || ep.title,
-                    season: 1,
-                    episode: index + 1,
+                    season: ep.season || 1,
+                    episode: ep.episode || 1,
                     thumbnail: ep.image,
                     overview: ep.description
                 }));
