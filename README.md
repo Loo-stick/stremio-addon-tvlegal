@@ -123,10 +123,16 @@ L'addon sera disponible sur :
 | Séries France.tv | France.tv | Drame, Comédie, Policier, etc. (TMDB) |
 | Séries Arte | Arte | Thriller, Policier, Comédie, etc. (TMDB) |
 | Docs Arte | Arte | Histoire, Société, Culture, Nature, Sciences |
+| Docs Arte Séries | Arte | Histoire, Société, Culture, Nature, Sciences |
 | Docs France.tv | France.tv | Histoire, Société, Nature, Culture |
+| Docs France.tv Séries | France.tv | Histoire, Société, Nature, Culture |
 | Émissions TV | France.tv | - |
 | Sport | France.tv | - |
 | Rugby | France.tv | - |
+
+### Liens de partage
+
+Chaque contenu dispose d'un bouton de partage qui renvoie vers la source originale (Arte.tv ou France.tv), permettant de partager facilement le lien avec d'autres personnes.
 
 ### Filtres par genre
 

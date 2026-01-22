@@ -87,6 +87,48 @@ const ID_PREFIX = {
     TF1_LIVE: 'tvlegal:tf1:live:'
 };
 
+/**
+ * Génère le lien vers la source originale
+ * @param {string} id - ID du contenu
+ * @returns {Array} Array de liens pour Stremio
+ */
+function getShareLinks(id) {
+    // Arte video
+    if (id.startsWith(ID_PREFIX.ARTE_VIDEO)) {
+        const programId = id.replace(ID_PREFIX.ARTE_VIDEO, '');
+        return [
+            { name: 'Voir sur Arte', category: 'share', url: `https://www.arte.tv/fr/videos/${programId}/` }
+        ];
+    }
+    // France.tv video
+    if (id.startsWith(ID_PREFIX.FRANCETV_VIDEO)) {
+        const videoId = id.replace(ID_PREFIX.FRANCETV_VIDEO, '');
+        return [
+            { name: 'Voir sur France.tv', category: 'share', url: `https://www.france.tv/redirect/video/${videoId}` }
+        ];
+    }
+    // France.tv program (série)
+    if (id.startsWith(ID_PREFIX.FRANCETV_PROGRAM)) {
+        const programPath = id.replace(ID_PREFIX.FRANCETV_PROGRAM, '');
+        return [
+            { name: 'Voir sur France.tv', category: 'share', url: `https://www.france.tv/${programPath.replace(/_/g, '/')}/` }
+        ];
+    }
+    return [];
+}
+
+/**
+ * Ajoute les liens de partage Stremio aux metas
+ * @param {Array} metas - Liste des metas
+ * @returns {Array} Metas avec liens de partage
+ */
+function addShareLinks(metas) {
+    return metas.map(meta => ({
+        ...meta,
+        links: getShareLinks(meta.id)
+    }));
+}
+
 // Tous les catalogues disponibles (clé = valeur dans config.catalogs)
 const ALL_CATALOGS = {
     'live': { type: 'tv', id: 'tvlegal-live', name: '📺 Directs' },
@@ -117,19 +159,37 @@ const ALL_CATALOGS = {
             { name: 'genre', isRequired: false, options: ['Tous', 'Thriller', 'Policier', 'Comédie', 'Drame', 'Science-fiction', 'Historique'] }
         ]
     },
-    'docs-arte': {
+    'docs-arte-films': {
         type: 'movie',
-        id: 'tvlegal-docs-arte',
+        id: 'tvlegal-docs-arte-films',
         name: '🎥 Docs Arte',
         extra: [
             { name: 'skip', isRequired: false },
             { name: 'genre', isRequired: false, options: ['Tous', 'Histoire', 'Société', 'Culture', 'Nature', 'Sciences'] }
         ]
     },
-    'docs-francetv': {
+    'docs-arte-series': {
+        type: 'series',
+        id: 'tvlegal-docs-arte-series',
+        name: '🎥 Docs Arte Séries',
+        extra: [
+            { name: 'skip', isRequired: false },
+            { name: 'genre', isRequired: false, options: ['Tous', 'Histoire', 'Société', 'Culture', 'Nature', 'Sciences'] }
+        ]
+    },
+    'docs-francetv-films': {
         type: 'movie',
-        id: 'tvlegal-docs-francetv',
+        id: 'tvlegal-docs-francetv-films',
         name: '📺 Docs France.tv',
+        extra: [
+            { name: 'skip', isRequired: false },
+            { name: 'genre', isRequired: false, options: ['Tous', 'Histoire', 'Société', 'Nature', 'Culture'] }
+        ]
+    },
+    'docs-francetv-series': {
+        type: 'series',
+        id: 'tvlegal-docs-francetv-series',
+        name: '📺 Docs France.tv Séries',
         extra: [
             { name: 'skip', isRequired: false },
             { name: 'genre', isRequired: false, options: ['Tous', 'Histoire', 'Société', 'Nature', 'Culture'] }
@@ -141,7 +201,7 @@ const ALL_CATALOGS = {
 };
 
 // Ordre par défaut des catalogues
-const DEFAULT_CATALOG_ORDER = ['live', 'films', 'series-francetv', 'series-arte', 'docs-arte', 'docs-francetv', 'emissions', 'sport', 'rugby'];
+const DEFAULT_CATALOG_ORDER = ['live', 'films', 'series-francetv', 'series-arte', 'docs-arte-films', 'docs-arte-series', 'docs-francetv-films', 'docs-francetv-series', 'emissions', 'sport', 'rugby'];
 
 /**
  * Génère la liste des catalogues selon la configuration
@@ -186,22 +246,61 @@ function hasTMDB(config) {
 }
 
 /**
+ * Mapping des IDs de catalogues vers les clés de config genres
+ */
+const CATALOG_GENRE_CONFIG_KEYS = {
+    'tvlegal-films': 'genres_films',
+    'tvlegal-series-francetv': 'genres_series_francetv',
+    'tvlegal-series-arte': 'genres_series_arte',
+    'tvlegal-docs-arte-films': 'genres_docs_arte_films',
+    'tvlegal-docs-arte-series': 'genres_docs_arte_series',
+    'tvlegal-docs-francetv-films': 'genres_docs_francetv_films',
+    'tvlegal-docs-francetv-series': 'genres_docs_francetv_series'
+};
+
+/**
  * Génère le manifest selon la configuration
  */
 function getManifest(config) {
     const tmdbAvailable = hasTMDB(config);
     const catalogs = getCatalogs(config).map(catalog => {
-        // Retire l'option genre des Films/Séries si pas de TMDB
-        if (!tmdbAvailable && catalog.extra) {
+        // Clone le catalogue pour ne pas modifier l'original
+        let result = { ...catalog };
+
+        // Traite les extras avec genres
+        if (result.extra) {
             const needsTMDB = ['tvlegal-films', 'tvlegal-series-francetv', 'tvlegal-series-arte'];
-            if (needsTMDB.includes(catalog.id)) {
-                return {
-                    ...catalog,
-                    extra: catalog.extra.filter(e => e.name !== 'genre')
+            const configKey = CATALOG_GENRE_CONFIG_KEYS[catalog.id];
+
+            // Retire l'option genre des Films/Séries si pas de TMDB
+            if (!tmdbAvailable && needsTMDB.includes(catalog.id)) {
+                result = {
+                    ...result,
+                    extra: result.extra.filter(e => e.name !== 'genre')
+                };
+            }
+            // Filtre les genres selon la config utilisateur
+            else if (configKey && config && config[configKey]) {
+                result = {
+                    ...result,
+                    extra: result.extra.map(e => {
+                        if (e.name === 'genre' && e.options) {
+                            // Garde "Tous" + les genres sélectionnés
+                            const selectedGenres = config[configKey];
+                            return {
+                                ...e,
+                                options: e.options.filter(opt =>
+                                    opt === 'Tous' || selectedGenres.includes(opt)
+                                )
+                            };
+                        }
+                        return e;
+                    })
                 };
             }
         }
-        return catalog;
+
+        return result;
     });
 
     return {
@@ -303,7 +402,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
             }
 
             console.log(`[TV Legal] ${metas.length} directs`);
-            return { metas };
+            return { metas: addShareLinks(metas) };
         }
 
         // === FILMS (Arte Cinéma) ===
@@ -393,7 +492,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
             }
 
             console.log(`[TV Legal] ${metas.length} films (filtre: ${genre || 'aucun'}, page: ${artePage})`);
-            return { metas };
+            return { metas: addShareLinks(metas) };
         }
 
         // === SÉRIES FRANCE.TV ===
@@ -468,7 +567,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
             });
 
             console.log(`[TV Legal] ${unique.length} séries France.tv (filtre: ${genre || 'aucun'})`);
-            return { metas: unique.slice(skip, skip + 50) };
+            return { metas: addShareLinks(unique.slice(skip, skip + 50)) };
         }
 
         // === SÉRIES ARTE ===
@@ -547,11 +646,13 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
             });
 
             console.log(`[TV Legal] ${unique.length} séries Arte (filtre: ${genre || 'aucun'}, page: ${artePage})`);
-            return { metas: unique };
+            return { metas: addShareLinks(unique) };
         }
 
-        // === DOCUMENTAIRES ARTE ===
-        if (id === 'tvlegal-docs-arte') {
+        // === DOCUMENTAIRES ARTE (Films) ===
+        if (id === 'tvlegal-docs-arte-films' || id === 'tvlegal-docs-arte-series') {
+            const isSeriesMode = id === 'tvlegal-docs-arte-series';
+            const filterType = isSeriesMode ? 'series' : 'films';
             const metas = [];
             const genre = extra?.genre;
             const genreFilter = genre && genre !== 'Tous' ? genre : null;
@@ -572,8 +673,8 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                 let videos = [];
 
                 if (!genreFilter) {
-                    // Sans filtre: récupère les docs avec pagination
-                    videos = await arte.getCategory('DOR', artePage);
+                    // Sans filtre: récupère les docs avec pagination et filtre par type
+                    videos = await arte.getCategory('DOR', artePage, filterType);
                 } else {
                     // Avec filtre: récupère les zones correspondantes
                     // Les zones Arte ont ~10 items/page, Stremio attend 50
@@ -584,7 +685,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                     const allPromises = [];
                     for (const zoneId of zoneIds) {
                         for (let p = arteStartPage; p < arteStartPage + 5; p++) {
-                            allPromises.push(arte.getZone(zoneId, 'DOR', p).catch(() => []));
+                            allPromises.push(arte.getZone(zoneId, 'DOR', p, filterType).catch(() => []));
                         }
                     }
                     const results = await Promise.all(allPromises);
@@ -601,7 +702,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
 
                     metas.push({
                         id: `${ID_PREFIX.ARTE_VIDEO}${video.programId}`,
-                        type: 'movie',
+                        type: isSeriesMode ? 'series' : 'movie',
                         name: video.title,
                         poster: video.image || video.imageLarge,
                         posterShape: 'poster',
@@ -614,12 +715,14 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                 console.error('[TV Legal] Erreur Arte Docs:', e.message);
             }
 
-            console.log(`[TV Legal] ${metas.length} docs Arte (filtre: ${genre || 'aucun'}, page: ${artePage})`);
-            return { metas };
+            console.log(`[TV Legal] ${metas.length} docs Arte ${filterType} (filtre: ${genre || 'aucun'}, page: ${artePage})`);
+            return { metas: addShareLinks(metas) };
         }
 
-        // === DOCUMENTAIRES FRANCE.TV ===
-        if (id === 'tvlegal-docs-francetv') {
+        // === DOCUMENTAIRES FRANCE.TV (Films & Séries) ===
+        if (id === 'tvlegal-docs-francetv-films' || id === 'tvlegal-docs-francetv-series') {
+            const isSeriesMode = id === 'tvlegal-docs-francetv-series';
+            const filterType = isSeriesMode ? 'series' : 'films';
             const metas = [];
             const genre = extra?.genre;
             const genreFilter = genre && genre !== 'Tous' ? genre : null;
@@ -634,7 +737,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
 
             try {
                 const collectionIds = genreFilter ? ftvCollections[genreFilter] : null;
-                const videos = await francetv.getDocumentaries(collectionIds);
+                const videos = await francetv.getDocumentaries(collectionIds, filterType);
 
                 for (const video of videos) {
                     const metaId = video.isProgram
@@ -643,7 +746,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
 
                     metas.push({
                         id: metaId,
-                        type: 'movie',
+                        type: isSeriesMode ? 'series' : 'movie',
                         name: video.title,
                         poster: video.poster || video.image,
                         posterShape: video.poster ? 'poster' : 'landscape',
@@ -655,8 +758,8 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                 console.error('[TV Legal] Erreur FranceTV Docs:', e.message);
             }
 
-            console.log(`[TV Legal] ${metas.length} docs France.tv (filtre: ${genre || 'aucun'})`);
-            return { metas: metas.slice(skip, skip + 50) };
+            console.log(`[TV Legal] ${metas.length} docs France.tv ${filterType} (filtre: ${genre || 'aucun'})`);
+            return { metas: addShareLinks(metas.slice(skip, skip + 50)) };
         }
 
         // === ÉMISSIONS TV (France.tv) ===
@@ -696,7 +799,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
             });
 
             console.log(`[TV Legal] ${unique.length} émissions`);
-            return { metas: unique.slice(skip, skip + 50) };
+            return { metas: addShareLinks(unique.slice(skip, skip + 50)) };
         }
 
         // === SPORT (France.tv) ===
@@ -725,7 +828,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
             }
 
             console.log(`[TV Legal] ${metas.length} vidéos sport`);
-            return { metas: metas.slice(skip, skip + 50) };
+            return { metas: addShareLinks(metas.slice(skip, skip + 50)) };
         }
 
         // === RUGBY (France.tv) ===
@@ -750,7 +853,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
             }
 
             console.log(`[TV Legal] ${metas.length} vidéos rugby`);
-            return { metas: metas.slice(skip, skip + 50) };
+            return { metas: addShareLinks(metas.slice(skip, skip + 50)) };
         }
 
         return { metas: [] };
@@ -783,7 +886,8 @@ builder.defineMetaHandler(async ({ type, id }) => {
                         name: info.title || 'Direct France.tv',
                         poster: info.image,
                         description: info.description,
-                        background: info.image
+                        background: info.image,
+                        links: getShareLinks(id)
                     }
                 };
             }
@@ -802,7 +906,8 @@ builder.defineMetaHandler(async ({ type, id }) => {
                         poster: info.image,
                         description: info.description,
                         background: info.image,
-                        runtime: info.duration ? `${Math.round(info.duration / 60)} min` : undefined
+                        runtime: info.duration ? `${Math.round(info.duration / 60)} min` : undefined,
+                        links: getShareLinks(id)
                     }
                 };
             }
@@ -831,7 +936,8 @@ builder.defineMetaHandler(async ({ type, id }) => {
                         poster: info.poster || info.image,
                         description: info.description,
                         background: info.background,
-                        videos
+                        videos,
+                        links: getShareLinks(id)
                     }
                 };
             }
@@ -846,7 +952,8 @@ builder.defineMetaHandler(async ({ type, id }) => {
                     type: 'tv',
                     name: 'Arte - Direct',
                     poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Arte_Logo_2017.svg/400px-Arte_Logo_2017.svg.png',
-                    description: live?.subtitle || 'En direct sur Arte'
+                    description: live?.subtitle || 'En direct sur Arte',
+                    links: getShareLinks(id)
                 }
             };
         }
@@ -879,7 +986,8 @@ builder.defineMetaHandler(async ({ type, id }) => {
                         poster: image,
                         description: meta?.description,
                         background: image,
-                        videos
+                        videos,
+                        links: getShareLinks(id)
                     }
                 };
             }
@@ -887,14 +995,16 @@ builder.defineMetaHandler(async ({ type, id }) => {
             const info = await arte.getVideoMeta(programId);
             if (info) {
                 const image = info.images?.find(i => i.url)?.url?.replace('__SIZE__', '400x225');
+                const metaType = type === 'series' ? 'series' : 'movie';
                 return {
                     meta: {
                         id,
-                        type: type === 'series' ? 'series' : 'movie',
+                        type: metaType,
                         name: info.title,
                         poster: image,
                         description: info.description,
-                        runtime: info.duration ? `${Math.round(info.duration / 60)} min` : undefined
+                        runtime: info.duration ? `${Math.round(info.duration / 60)} min` : undefined,
+                        links: getShareLinks(id)
                     }
                 };
             }
@@ -912,7 +1022,8 @@ builder.defineMetaHandler(async ({ type, id }) => {
                         name: info.title || info.channel,
                         poster: info.preview,
                         description: `Direct ${info.channel}`,
-                        background: info.preview
+                        background: info.preview,
+                        links: getShareLinks(id)
                     }
                 };
             }

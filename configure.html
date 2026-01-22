@@ -205,6 +205,56 @@
         .buttons .btn {
             flex: 1;
         }
+        .catalog-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .catalog-item {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .catalog-item .checkbox-item {
+            margin: 0;
+            border-radius: 8px 8px 0 0;
+        }
+        .genres-section {
+            padding: 10px 15px;
+            background: rgba(0, 0, 0, 0.2);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .genres-section small {
+            color: #8892b0;
+            display: block;
+            margin-bottom: 8px;
+        }
+        .genres-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        .genres-list label {
+            display: flex;
+            align-items: center;
+            padding: 5px 10px;
+            background: rgba(100, 255, 218, 0.1);
+            border-radius: 15px;
+            font-size: 0.85em;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .genres-list label:hover {
+            background: rgba(100, 255, 218, 0.2);
+        }
+        .genres-list input {
+            margin-right: 5px;
+            accent-color: #64ffda;
+        }
+        .genres-section.disabled {
+            opacity: 0.4;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -217,39 +267,149 @@
         <form id="configForm">
             <div class="card">
                 <h2>Catalogues</h2>
-                <div class="checkbox-group">
-                    <label class="checkbox-item">
-                        <input type="checkbox" name="catalogs" value="films" checked>
-                        <span>Films</span>
-                    </label>
-                    <label class="checkbox-item">
-                        <input type="checkbox" name="catalogs" value="series-francetv" checked>
-                        <span>Séries France.tv</span>
-                    </label>
-                    <label class="checkbox-item">
-                        <input type="checkbox" name="catalogs" value="series-arte" checked>
-                        <span>Séries Arte</span>
-                    </label>
-                    <label class="checkbox-item">
-                        <input type="checkbox" name="catalogs" value="docs-arte" checked>
-                        <span>Docs Arte</span>
-                    </label>
-                    <label class="checkbox-item">
-                        <input type="checkbox" name="catalogs" value="docs-francetv" checked>
-                        <span>Docs France.tv</span>
-                    </label>
-                    <label class="checkbox-item">
-                        <input type="checkbox" name="catalogs" value="emissions" checked>
-                        <span>Émissions TV</span>
-                    </label>
-                    <label class="checkbox-item">
-                        <input type="checkbox" name="catalogs" value="sport" checked>
-                        <span>Sport</span>
-                    </label>
-                    <label class="checkbox-item">
-                        <input type="checkbox" name="catalogs" value="rugby" checked>
-                        <span>Rugby</span>
-                    </label>
+                <div class="catalog-list">
+                    <!-- Films -->
+                    <div class="catalog-item">
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="catalogs" value="films" checked onchange="toggleGenres(this)">
+                            <span>🎬 Films</span>
+                        </label>
+                        <div class="genres-section" id="genres-films">
+                            <small>Genres (TMDB requis) :</small>
+                            <div class="genres-list">
+                                <label><input type="checkbox" name="genres-films" value="Drame" checked> Drame</label>
+                                <label><input type="checkbox" name="genres-films" value="Comédie" checked> Comédie</label>
+                                <label><input type="checkbox" name="genres-films" value="Thriller" checked> Thriller</label>
+                                <label><input type="checkbox" name="genres-films" value="Action" checked> Action</label>
+                                <label><input type="checkbox" name="genres-films" value="Science-fiction" checked> Sci-Fi</label>
+                                <label><input type="checkbox" name="genres-films" value="Historique" checked> Historique</label>
+                                <label><input type="checkbox" name="genres-films" value="Romance" checked> Romance</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Séries France.tv -->
+                    <div class="catalog-item">
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="catalogs" value="series-francetv" checked onchange="toggleGenres(this)">
+                            <span>📺 Séries France.tv</span>
+                        </label>
+                        <div class="genres-section" id="genres-series-francetv">
+                            <small>Genres (TMDB requis) :</small>
+                            <div class="genres-list">
+                                <label><input type="checkbox" name="genres-series-francetv" value="Drame" checked> Drame</label>
+                                <label><input type="checkbox" name="genres-series-francetv" value="Comédie" checked> Comédie</label>
+                                <label><input type="checkbox" name="genres-series-francetv" value="Policier" checked> Policier</label>
+                                <label><input type="checkbox" name="genres-series-francetv" value="Thriller" checked> Thriller</label>
+                                <label><input type="checkbox" name="genres-series-francetv" value="Historique" checked> Historique</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Séries Arte -->
+                    <div class="catalog-item">
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="catalogs" value="series-arte" checked onchange="toggleGenres(this)">
+                            <span>📺 Séries Arte</span>
+                        </label>
+                        <div class="genres-section" id="genres-series-arte">
+                            <small>Genres (TMDB requis) :</small>
+                            <div class="genres-list">
+                                <label><input type="checkbox" name="genres-series-arte" value="Thriller" checked> Thriller</label>
+                                <label><input type="checkbox" name="genres-series-arte" value="Policier" checked> Policier</label>
+                                <label><input type="checkbox" name="genres-series-arte" value="Comédie" checked> Comédie</label>
+                                <label><input type="checkbox" name="genres-series-arte" value="Drame" checked> Drame</label>
+                                <label><input type="checkbox" name="genres-series-arte" value="Science-fiction" checked> Sci-Fi</label>
+                                <label><input type="checkbox" name="genres-series-arte" value="Historique" checked> Historique</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Docs Arte Films -->
+                    <div class="catalog-item">
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="catalogs" value="docs-arte-films" checked onchange="toggleGenres(this)">
+                            <span>🎥 Docs Arte</span>
+                        </label>
+                        <div class="genres-section" id="genres-docs-arte-films">
+                            <small>Genres :</small>
+                            <div class="genres-list">
+                                <label><input type="checkbox" name="genres-docs-arte-films" value="Histoire" checked> Histoire</label>
+                                <label><input type="checkbox" name="genres-docs-arte-films" value="Société" checked> Société</label>
+                                <label><input type="checkbox" name="genres-docs-arte-films" value="Culture" checked> Culture</label>
+                                <label><input type="checkbox" name="genres-docs-arte-films" value="Nature" checked> Nature</label>
+                                <label><input type="checkbox" name="genres-docs-arte-films" value="Sciences" checked> Sciences</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Docs Arte Séries -->
+                    <div class="catalog-item">
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="catalogs" value="docs-arte-series" checked onchange="toggleGenres(this)">
+                            <span>🎥 Docs Arte Séries</span>
+                        </label>
+                        <div class="genres-section" id="genres-docs-arte-series">
+                            <small>Genres :</small>
+                            <div class="genres-list">
+                                <label><input type="checkbox" name="genres-docs-arte-series" value="Histoire" checked> Histoire</label>
+                                <label><input type="checkbox" name="genres-docs-arte-series" value="Société" checked> Société</label>
+                                <label><input type="checkbox" name="genres-docs-arte-series" value="Culture" checked> Culture</label>
+                                <label><input type="checkbox" name="genres-docs-arte-series" value="Nature" checked> Nature</label>
+                                <label><input type="checkbox" name="genres-docs-arte-series" value="Sciences" checked> Sciences</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Docs France.tv Films -->
+                    <div class="catalog-item">
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="catalogs" value="docs-francetv-films" checked onchange="toggleGenres(this)">
+                            <span>📺 Docs France.tv</span>
+                        </label>
+                        <div class="genres-section" id="genres-docs-francetv-films">
+                            <small>Genres :</small>
+                            <div class="genres-list">
+                                <label><input type="checkbox" name="genres-docs-francetv-films" value="Histoire" checked> Histoire</label>
+                                <label><input type="checkbox" name="genres-docs-francetv-films" value="Société" checked> Société</label>
+                                <label><input type="checkbox" name="genres-docs-francetv-films" value="Nature" checked> Nature</label>
+                                <label><input type="checkbox" name="genres-docs-francetv-films" value="Culture" checked> Culture</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Docs France.tv Séries -->
+                    <div class="catalog-item">
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="catalogs" value="docs-francetv-series" checked onchange="toggleGenres(this)">
+                            <span>📺 Docs France.tv Séries</span>
+                        </label>
+                        <div class="genres-section" id="genres-docs-francetv-series">
+                            <small>Genres :</small>
+                            <div class="genres-list">
+                                <label><input type="checkbox" name="genres-docs-francetv-series" value="Histoire" checked> Histoire</label>
+                                <label><input type="checkbox" name="genres-docs-francetv-series" value="Société" checked> Société</label>
+                                <label><input type="checkbox" name="genres-docs-francetv-series" value="Nature" checked> Nature</label>
+                                <label><input type="checkbox" name="genres-docs-francetv-series" value="Culture" checked> Culture</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Catalogues sans genres -->
+                    <div class="checkbox-group" style="margin-top: 15px;">
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="catalogs" value="emissions" checked>
+                            <span>📡 Émissions TV</span>
+                        </label>
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="catalogs" value="sport" checked>
+                            <span>⚽ Sport</span>
+                        </label>
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="catalogs" value="rugby" checked>
+                            <span>🏉 Rugby</span>
+                        </label>
+                    </div>
                 </div>
             </div>
 
@@ -311,6 +471,29 @@
     <script>
         const BASE_URL = window.location.origin;
 
+        // Catalogues avec genres
+        const CATALOGS_WITH_GENRES = ['films', 'series-francetv', 'series-arte', 'docs-arte-films', 'docs-arte-series', 'docs-francetv-films', 'docs-francetv-series'];
+
+        // Toggle genres quand on coche/décoche un catalogue
+        function toggleGenres(checkbox) {
+            const catalogId = checkbox.value;
+            const genresSection = document.getElementById('genres-' + catalogId);
+            if (genresSection) {
+                genresSection.classList.toggle('disabled', !checkbox.checked);
+            }
+        }
+
+        // Initialise l'état des sections genres
+        function initGenresSections() {
+            CATALOGS_WITH_GENRES.forEach(catalogId => {
+                const checkbox = document.querySelector(`input[name="catalogs"][value="${catalogId}"]`);
+                const genresSection = document.getElementById('genres-' + catalogId);
+                if (checkbox && genresSection) {
+                    genresSection.classList.toggle('disabled', !checkbox.checked);
+                }
+            });
+        }
+
         // Pré-remplir le formulaire si config existante dans l'URL
         (function() {
             const pathParts = window.location.pathname.split('/');
@@ -324,6 +507,16 @@
                             cb.checked = config.catalogs.includes(cb.value);
                         });
                     }
+
+                    // Genres par catalogue
+                    CATALOGS_WITH_GENRES.forEach(catalogId => {
+                        const configKey = 'genres_' + catalogId.replace('-', '_');
+                        if (config[configKey]) {
+                            document.querySelectorAll(`input[name="genres-${catalogId}"]`).forEach(cb => {
+                                cb.checked = config[configKey].includes(cb.value);
+                            });
+                        }
+                    });
 
                     // Live
                     if (config.live !== undefined) {
@@ -346,6 +539,7 @@
                     console.log('Pas de config existante');
                 }
             }
+            initGenresSections();
         })();
 
         function getConfig() {
@@ -361,6 +555,19 @@
                 tf1Password: document.getElementById('tf1Password').value || null,
                 tmdbKey: document.getElementById('tmdbKey').value || null
             };
+
+            // Récupère les genres sélectionnés pour chaque catalogue
+            CATALOGS_WITH_GENRES.forEach(catalogId => {
+                const allGenres = document.querySelectorAll(`input[name="genres-${catalogId}"]`);
+                const selectedGenres = Array.from(document.querySelectorAll(`input[name="genres-${catalogId}"]:checked`))
+                    .map(cb => cb.value);
+
+                // Ne stocke que si pas tous les genres sont sélectionnés (pour réduire la taille de l'URL)
+                if (selectedGenres.length < allGenres.length && selectedGenres.length > 0) {
+                    const configKey = 'genres_' + catalogId.replace('-', '_');
+                    config[configKey] = selectedGenres;
+                }
+            });
 
             // Supprime les valeurs null
             Object.keys(config).forEach(key => {
