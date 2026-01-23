@@ -195,13 +195,14 @@ const ALL_CATALOGS = {
             { name: 'genre', isRequired: false, options: ['Tous', 'Histoire', 'Société', 'Nature', 'Culture'] }
         ]
     },
-    'emissions': { type: 'movie', id: 'tvlegal-emissions', name: '📡 Émissions TV', extra: [{ name: 'skip', isRequired: false }] },
+    'emissions-francetv': { type: 'series', id: 'tvlegal-emissions-francetv', name: '📡 Émissions France.tv', extra: [{ name: 'skip', isRequired: false }] },
+    'emissions-arte': { type: 'series', id: 'tvlegal-emissions-arte', name: '📡 Émissions Arte', extra: [{ name: 'skip', isRequired: false }] },
     'sport': { type: 'movie', id: 'tvlegal-sport', name: '⚽ Sport', extra: [{ name: 'skip', isRequired: false }] },
     'rugby': { type: 'movie', id: 'tvlegal-rugby', name: '🏉 Rugby', extra: [{ name: 'skip', isRequired: false }] }
 };
 
 // Ordre par défaut des catalogues
-const DEFAULT_CATALOG_ORDER = ['live', 'films', 'series-francetv', 'series-arte', 'docs-arte-films', 'docs-arte-series', 'docs-francetv-films', 'docs-francetv-series', 'emissions', 'sport', 'rugby'];
+const DEFAULT_CATALOG_ORDER = ['live', 'films', 'series-francetv', 'series-arte', 'docs-arte-films', 'docs-arte-series', 'docs-francetv-films', 'docs-francetv-series', 'emissions-francetv', 'emissions-arte', 'sport', 'rugby'];
 
 /**
  * Génère la liste des catalogues selon la configuration
@@ -759,42 +760,85 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
         }
 
         // === ÉMISSIONS TV (France.tv) ===
-        if (id === 'tvlegal-emissions') {
+        // === ÉMISSIONS FRANCE.TV ===
+        if (id === 'tvlegal-emissions-francetv') {
             const metas = [];
             const channels = ['france-2', 'france-3', 'france-5', 'france-4', 'franceinfo'];
 
             for (const channelId of channels) {
                 try {
-                    const videos = await francetv.getChannelContent(channelId);
+                    const videos = await francetv.getEmissions(channelId);
                     for (const video of videos.slice(0, 15)) {
-                        const metaId = video.isProgram
-                            ? `${ID_PREFIX.FRANCETV_PROGRAM}${video.programPath}`
-                            : `${ID_PREFIX.FRANCETV_VIDEO}${video.id}`;
-
-                        metas.push({
-                            id: metaId,
-                            type: 'movie',
-                            name: video.title,
-                            poster: video.poster || video.image,
-                            posterShape: video.poster ? 'poster' : 'landscape',
-                            description: video.description,
-                            background: video.image
-                        });
+                        // Privilégie les programmes (avec épisodes) aux vidéos simples
+                        if (video.isProgram && video.programPath) {
+                            metas.push({
+                                id: `${ID_PREFIX.FRANCETV_PROGRAM}${video.programPath}`,
+                                type: 'series',
+                                name: video.title,
+                                poster: video.poster || video.image,
+                                posterShape: video.poster ? 'poster' : 'landscape',
+                                description: video.description,
+                                background: video.image
+                            });
+                        } else {
+                            metas.push({
+                                id: `${ID_PREFIX.FRANCETV_VIDEO}${video.id}`,
+                                type: 'series',
+                                name: video.title,
+                                poster: video.poster || video.image,
+                                posterShape: video.poster ? 'poster' : 'landscape',
+                                description: video.description,
+                                background: video.image
+                            });
+                        }
                     }
                 } catch (e) {
                     console.error(`[TV Legal] Erreur FranceTV ${channelId}:`, e.message);
                 }
             }
 
-            // Déduplique
+            // Déduplique par nom (garde le premier = souvent le programme)
             const seen = new Set();
             const unique = metas.filter(m => {
-                if (seen.has(m.id)) return false;
-                seen.add(m.id);
+                if (seen.has(m.name)) return false;
+                seen.add(m.name);
                 return true;
             });
 
-            console.log(`[TV Legal] ${unique.length} émissions`);
+            console.log(`[TV Legal] ${unique.length} émissions France.tv`);
+            return { metas: addShareLinks(unique.slice(skip, skip + 50)) };
+        }
+
+        // === ÉMISSIONS ARTE ===
+        if (id === 'tvlegal-emissions-arte') {
+            const metas = [];
+
+            try {
+                const arteVideos = await arte.getCategory('EMI', 1);
+                for (const video of arteVideos) {
+                    metas.push({
+                        id: `${ID_PREFIX.ARTE_VIDEO}${video.programId}`,
+                        type: 'series',
+                        name: video.title,
+                        poster: video.poster || video.image,
+                        posterShape: 'poster',
+                        description: video.description || video.subtitle,
+                        background: video.imageLarge
+                    });
+                }
+            } catch (e) {
+                console.error('[TV Legal] Erreur Arte émissions:', e.message);
+            }
+
+            // Déduplique par nom
+            const seen = new Set();
+            const unique = metas.filter(m => {
+                if (seen.has(m.name)) return false;
+                seen.add(m.name);
+                return true;
+            });
+
+            console.log(`[TV Legal] ${unique.length} émissions Arte`);
             return { metas: addShareLinks(unique.slice(skip, skip + 50)) };
         }
 
