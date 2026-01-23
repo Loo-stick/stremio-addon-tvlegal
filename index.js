@@ -938,6 +938,28 @@ builder.defineMetaHandler(async ({ type, id }) => {
             const videoId = id.replace(ID_PREFIX.FRANCETV_VIDEO, '');
             const info = await francetv.getVideoInfo(videoId);
             if (info) {
+                // Si demandé comme série (ex: émissions), créer un épisode unique
+                if (type === 'series') {
+                    return {
+                        meta: {
+                            id,
+                            type: 'series',
+                            name: info.title,
+                            poster: info.image,
+                            description: info.description,
+                            background: info.image,
+                            videos: [{
+                                id: id,
+                                title: info.title,
+                                season: 1,
+                                episode: 1,
+                                thumbnail: info.image,
+                                overview: info.description
+                            }],
+                            links: getShareLinks(id)
+                        }
+                    };
+                }
                 return {
                     meta: {
                         id,
