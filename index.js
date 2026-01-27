@@ -19,6 +19,7 @@ const FranceTVClient = require('./lib/francetv');
 const ArteClient = require('./lib/arte');
 const TF1Client = require('./lib/tf1');
 const TMDBClient = require('./lib/tmdb');
+const RugbyPassClient = require('./lib/rugbypass');
 
 const PORT = process.env.PORT || 7001;
 
@@ -27,10 +28,14 @@ const francetv = new FranceTVClient();
 const arte = new ArteClient();
 const tf1Default = new TF1Client();
 const tmdbDefault = process.env.TMDB_API_KEY ? new TMDBClient(process.env.TMDB_API_KEY) : null;
+const rugbypassDefault = (process.env.RUGBYPASS_EMAIL && process.env.RUGBYPASS_PASSWORD)
+    ? new RugbyPassClient(process.env.RUGBYPASS_EMAIL, process.env.RUGBYPASS_PASSWORD)
+    : null;
 
-// Cache des clients TF1/TMDB par config
+// Cache des clients TF1/TMDB/RugbyPass par config
 const tf1Clients = new Map();
 const tmdbClients = new Map();
+const rugbypassClients = new Map();
 
 /**
  * Parse la configuration depuis l'URL encodée en base64
@@ -61,6 +66,20 @@ function getTF1Client(config) {
 /**
  * Récupère ou crée un client TMDB pour une config
  */
+/**
+ * Récupère ou crée un client RugbyPass pour une config
+ */
+function getRugbyPassClient(config) {
+    if (!config?.rugbypassEmail || !config?.rugbypassPassword) {
+        return rugbypassDefault;
+    }
+    const key = `${config.rugbypassEmail}:${config.rugbypassPassword}`;
+    if (!rugbypassClients.has(key)) {
+        rugbypassClients.set(key, new RugbyPassClient(config.rugbypassEmail, config.rugbypassPassword));
+    }
+    return rugbypassClients.get(key);
+}
+
 function getTMDBClient(config) {
     if (!config?.tmdbKey) {
         return tmdbDefault;
@@ -84,7 +103,11 @@ const ID_PREFIX = {
     FRANCETV_PROGRAM: 'tvlegal:ftv:program:',
     ARTE_LIVE: 'tvlegal:arte:live',
     ARTE_VIDEO: 'tvlegal:arte:video:',
-    TF1_LIVE: 'tvlegal:tf1:live:'
+    TF1_LIVE: 'tvlegal:tf1:live:',
+    RUGBYPASS_LIVE: 'tvlegal:rugbypass:live:',
+    RUGBYPASS_VOD: 'tvlegal:rugbypass:vod:',
+    RUGBYPASS_PLAYLIST: 'tvlegal:rugbypass:playlist:',
+    RUGBYPASS_SECTION_BUCKET: 'tvlegal:rugbypass:sb:'
 };
 
 /**
@@ -112,6 +135,12 @@ function getShareLinks(id) {
         const programPath = id.replace(ID_PREFIX.FRANCETV_PROGRAM, '');
         return [
             { name: 'Voir sur France.tv', category: 'share', url: `https://www.france.tv/${programPath.replace(/_/g, '/')}/` }
+        ];
+    }
+    // RugbyPass
+    if (id.startsWith(ID_PREFIX.RUGBYPASS_VOD) || id.startsWith(ID_PREFIX.RUGBYPASS_LIVE) || id.startsWith(ID_PREFIX.RUGBYPASS_PLAYLIST) || id.startsWith(ID_PREFIX.RUGBYPASS_SECTION_BUCKET)) {
+        return [
+            { name: 'Voir sur RugbyPass TV', category: 'share', url: 'https://rugbypass.tv' }
         ];
     }
     return [];
@@ -198,11 +227,24 @@ const ALL_CATALOGS = {
     'emissions-francetv': { type: 'series', id: 'tvlegal-emissions-francetv', name: '📡 Émissions France.tv', extra: [{ name: 'skip', isRequired: false }] },
     'emissions-arte': { type: 'series', id: 'tvlegal-emissions-arte', name: '📡 Émissions Arte', extra: [{ name: 'skip', isRequired: false }] },
     'sport': { type: 'movie', id: 'tvlegal-sport', name: '⚽ Sport', extra: [{ name: 'skip', isRequired: false }] },
-    'rugby': { type: 'movie', id: 'tvlegal-rugby', name: '🏉 Rugby', extra: [{ name: 'skip', isRequired: false }] }
+    'rugby': { type: 'movie', id: 'tvlegal-rugby', name: '🏉 Rugby', extra: [{ name: 'skip', isRequired: false }] },
+    'rugbypass-replay': {
+        type: 'series',
+        id: 'tvlegal-rugbypass-replay',
+        name: '🏉 RugbyPass TV',
+        extra: [
+            { name: 'skip', isRequired: false },
+            { name: 'genre', isRequired: false, options: [
+                'Tous', 'Trending', 'Highlights - Replays', 'Latest Shows', 'Documentaries',
+                'Series', 'Tournaments', 'Rugby World Cup Archive', 'NZR+', 'Latest',
+                '🏴 France', '🏴 Springboks', '🏴 England', '🏴 Ireland', '🏴 Scotland', '🏴 Wales'
+            ]}
+        ]
+    }
 };
 
 // Ordre par défaut des catalogues
-const DEFAULT_CATALOG_ORDER = ['live', 'films', 'series-francetv', 'series-arte', 'docs-arte-films', 'docs-arte-series', 'docs-francetv-films', 'docs-francetv-series', 'emissions-francetv', 'emissions-arte', 'sport', 'rugby'];
+const DEFAULT_CATALOG_ORDER = ['live', 'films', 'series-francetv', 'series-arte', 'docs-arte-films', 'docs-arte-series', 'docs-francetv-films', 'docs-francetv-series', 'emissions-francetv', 'emissions-arte', 'sport', 'rugby', 'rugbypass-replay'];
 
 /**
  * Génère la liste des catalogues selon la configuration
@@ -328,6 +370,12 @@ if (tf1Default.isConfigured()) {
     console.log('[TV Legal] TF1+ non configuré (TF1_EMAIL/TF1_PASSWORD absents)');
 }
 
+if (rugbypassDefault) {
+    console.log('[TV Legal] RugbyPass TV configuré (credentials détectés)');
+} else {
+    console.log('[TV Legal] RugbyPass TV non configuré (RUGBYPASS_EMAIL/RUGBYPASS_PASSWORD absents)');
+}
+
 // Builder par défaut (sans config)
 const builder = new addonBuilder(getManifest(null));
 
@@ -399,6 +447,28 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                     }
                 } catch (e) {
                     console.error('[TV Legal] Erreur TF1+ lives:', e.message);
+                }
+            }
+
+            // RugbyPass TV Live (si configuré)
+            const rugbypass = getRugbyPassClient(currentConfig);
+            if (rugbypass) {
+                try {
+                    const events = await rugbypass.getLiveEvents();
+                    for (const event of events) {
+                        if (event.live) {
+                            metas.push({
+                                id: `${ID_PREFIX.RUGBYPASS_LIVE}${event.id}`,
+                                type: 'tv',
+                                name: `RugbyPass - ${event.title}`,
+                                poster: event.thumbnailUrl,
+                                posterShape: 'landscape',
+                                description: event.description || '🏉 En direct sur RugbyPass TV'
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.error('[TV Legal] Erreur RugbyPass lives:', e.message);
                 }
             }
 
@@ -896,6 +966,56 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
             return { metas: addShareLinks(metas.slice(skip, skip + 50)) };
         }
 
+        // === RUGBYPASS TV (Replays) ===
+        if (id === 'tvlegal-rugbypass-replay') {
+            const rugbypass = getRugbyPassClient(currentConfig);
+            if (!rugbypass) {
+                console.log('[TV Legal] RugbyPass non configuré');
+                return { metas: [] };
+            }
+
+            const metas = [];
+            const genre = extra?.genre;
+            const genreFilter = genre && genre !== 'Tous' ? genre : null;
+
+            try {
+                const catalog = await rugbypass.getCatalogByGenre(genreFilter, skip, 50);
+                for (const item of catalog) {
+                    if (item.type === 'vod') {
+                        metas.push({
+                            id: `${ID_PREFIX.RUGBYPASS_VOD}${item.id}`,
+                            type: 'series',
+                            name: item.title,
+                            poster: item.poster || item.thumbnail,
+                            posterShape: 'landscape',
+                            description: item.description,
+                        });
+                    } else if (item.type === 'playlist') {
+                        metas.push({
+                            id: `${ID_PREFIX.RUGBYPASS_PLAYLIST}${item.id}`,
+                            type: 'series',
+                            name: item.title,
+                            poster: item.poster || item.thumbnail,
+                            posterShape: 'landscape',
+                        });
+                    } else if (item.type === 'section_bucket') {
+                        metas.push({
+                            id: `${ID_PREFIX.RUGBYPASS_SECTION_BUCKET}${item.sectionName}:${item.exid}`,
+                            type: 'series',
+                            name: item.title,
+                            poster: item.poster || item.thumbnail,
+                            posterShape: 'landscape',
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error('[TV Legal] Erreur RugbyPass catalogue:', e.message);
+            }
+
+            console.log(`[TV Legal] ${metas.length} vidéos RugbyPass (genre: ${genre || 'Tous'}, skip: ${skip})`);
+            return { metas: addShareLinks(metas) };
+        }
+
         return { metas: [] };
 
     } catch (error) {
@@ -1088,6 +1208,132 @@ builder.defineMetaHandler(async ({ type, id }) => {
                         links: getShareLinks(id)
                     }
                 };
+            }
+        }
+
+        // RugbyPass Live
+        if (id.startsWith(ID_PREFIX.RUGBYPASS_LIVE)) {
+            const eventId = id.replace(ID_PREFIX.RUGBYPASS_LIVE, '');
+            const rugbypass = getRugbyPassClient(currentConfig);
+            if (rugbypass) {
+                try {
+                    const events = await rugbypass.getLiveEvents();
+                    const event = events.find(e => String(e.id) === eventId);
+                    if (event) {
+                        return {
+                            meta: {
+                                id,
+                                type: 'tv',
+                                name: event.title,
+                                poster: event.thumbnailUrl,
+                                description: event.description || 'En direct sur RugbyPass TV',
+                                links: getShareLinks(id)
+                            }
+                        };
+                    }
+                } catch (e) {
+                    console.error('[TV Legal] Erreur meta RugbyPass live:', e.message);
+                }
+            }
+        }
+
+        // RugbyPass VOD (vidéo unique → série avec 1 épisode)
+        if (id.startsWith(ID_PREFIX.RUGBYPASS_VOD)) {
+            const vodId = id.replace(ID_PREFIX.RUGBYPASS_VOD, '');
+            const rugbypass = getRugbyPassClient(currentConfig);
+            if (rugbypass) {
+                try {
+                    const vodData = await rugbypass._fetch(`/v2/vod/${vodId}`);
+                    return {
+                        meta: {
+                            id,
+                            type: 'series',
+                            name: vodData.title || 'RugbyPass TV',
+                            poster: vodData.thumbnailUrl,
+                            description: vodData.description || '',
+                            videos: [{
+                                id: `${id}:1:1`,
+                                title: vodData.title || 'Regarder',
+                                season: 1,
+                                episode: 1,
+                                overview: vodData.description || '',
+                                thumbnail: vodData.thumbnailUrl,
+                            }],
+                            links: getShareLinks(id)
+                        }
+                    };
+                } catch (e) {
+                    console.error('[TV Legal] Erreur meta RugbyPass VOD:', e.message);
+                }
+            }
+        }
+
+        // RugbyPass Playlist (liste de vidéos → série avec épisodes)
+        if (id.startsWith(ID_PREFIX.RUGBYPASS_PLAYLIST)) {
+            const playlistId = id.replace(ID_PREFIX.RUGBYPASS_PLAYLIST, '');
+            const rugbypass = getRugbyPassClient(currentConfig);
+            if (rugbypass) {
+                try {
+                    const playlist = await rugbypass.getPlaylist(playlistId);
+                    const videos = playlist.vods.map((vod, i) => ({
+                        id: `${id}:1:${i + 1}`,
+                        title: vod.title || vod.name || `Vidéo ${i + 1}`,
+                        season: 1,
+                        episode: i + 1,
+                        overview: vod.description || '',
+                        thumbnail: vod.thumbnailUrl,
+                    }));
+
+                    return {
+                        meta: {
+                            id,
+                            type: 'series',
+                            name: playlist.title || playlist.vods[0]?.title || 'RugbyPass TV',
+                            poster: playlist.coverUrl || playlist.vods[0]?.thumbnailUrl,
+                            description: `${videos.length} vidéos`,
+                            videos,
+                            links: getShareLinks(id)
+                        }
+                    };
+                } catch (e) {
+                    console.error('[TV Legal] Erreur meta RugbyPass playlist:', e.message);
+                }
+            }
+        }
+
+        // RugbyPass Section Bucket (playlist de section pays → série avec épisodes)
+        if (id.startsWith(ID_PREFIX.RUGBYPASS_SECTION_BUCKET)) {
+            const rest = id.replace(ID_PREFIX.RUGBYPASS_SECTION_BUCKET, '');
+            const colonIdx = rest.indexOf(':');
+            const sectionName = rest.substring(0, colonIdx);
+            const bucketExid = rest.substring(colonIdx + 1);
+            const rugbypass = getRugbyPassClient(currentConfig);
+            if (rugbypass) {
+                try {
+                    const bucket = await rugbypass.getSectionBucketContent(sectionName, bucketExid);
+                    const videos = bucket.vods.map((vod, i) => ({
+                        id: `${id}:1:${i + 1}`,
+                        title: vod.title || vod.name || `Vidéo ${i + 1}`,
+                        season: 1,
+                        episode: i + 1,
+                        overview: vod.description || '',
+                        thumbnail: vod.thumbnailUrl,
+                    }));
+
+                    return {
+                        meta: {
+                            id,
+                            type: 'series',
+                            name: bucket.title,
+                            poster: bucket.vods[0]?.thumbnailUrl,
+                            description: `${videos.length} vidéos`,
+                            videos,
+                            links: getShareLinks(id)
+                        }
+                    };
+                } catch (e) {
+                    console.error('[TV Legal] Erreur meta RugbyPass section bucket:', e.message);
+                }
             }
         }
 
@@ -1373,6 +1619,168 @@ builder.defineStreamHandler(async ({ type, id }) => {
             }
         }
 
+        // RugbyPass Live
+        if (id.startsWith(ID_PREFIX.RUGBYPASS_LIVE)) {
+            const eventId = id.replace(ID_PREFIX.RUGBYPASS_LIVE, '');
+            const rugbypass = getRugbyPassClient(currentConfig);
+            if (rugbypass) {
+                try {
+                    const result = await rugbypass.getEventStream(eventId);
+                    if (result.hasDrm) {
+                        return {
+                            streams: [{
+                                name: 'RugbyPass TV',
+                                title: 'Contenu protégé (DRM)',
+                                externalUrl: 'https://rugbypass.tv'
+                            }]
+                        };
+                    }
+                    if (result.streamUrl) {
+                        const stream = {
+                            name: 'RugbyPass TV',
+                            title: `🔴 ${result.event?.title || 'Live Rugby'}`,
+                            url: result.streamUrl,
+                            behaviorHints: { notWebReady: false }
+                        };
+                        if (result.subtitles?.length) {
+                            stream.subtitles = result.subtitles
+                                .filter(s => s.format === 'vtt' || s.format === 'srt')
+                                .map(s => ({ id: s.lang, url: s.url, lang: s.lang }));
+                        }
+                        return { streams: [stream] };
+                    }
+                } catch (e) {
+                    console.error('[TV Legal] Erreur stream RugbyPass live:', e.message);
+                }
+            }
+        }
+
+        // RugbyPass VOD (format: tvlegal:rugbypass:vod:ID:season:episode)
+        if (id.startsWith(ID_PREFIX.RUGBYPASS_VOD)) {
+            const rest = id.replace(ID_PREFIX.RUGBYPASS_VOD, '');
+            const vodId = rest.split(':')[0];
+            const rugbypass = getRugbyPassClient(currentConfig);
+            if (rugbypass) {
+                try {
+                    const result = await rugbypass.getVodStream(vodId);
+                    if (result.hasDrm) {
+                        return {
+                            streams: [{
+                                name: 'RugbyPass TV',
+                                title: 'Contenu protégé (DRM)',
+                                externalUrl: 'https://rugbypass.tv'
+                            }]
+                        };
+                    }
+                    if (result.streamUrl) {
+                        const stream = {
+                            name: 'RugbyPass TV',
+                            title: `${result.vod?.title || 'Replay Rugby'}\n🏉 RugbyPass TV`,
+                            url: result.streamUrl,
+                            behaviorHints: { notWebReady: false }
+                        };
+                        if (result.subtitles?.length) {
+                            stream.subtitles = result.subtitles
+                                .filter(s => s.format === 'vtt' || s.format === 'srt')
+                                .map(s => ({ id: s.lang, url: s.url, lang: s.lang }));
+                        }
+                        return { streams: [stream] };
+                    }
+                } catch (e) {
+                    console.error('[TV Legal] Erreur stream RugbyPass VOD:', e.message);
+                }
+            }
+        }
+
+        // RugbyPass Playlist (format: tvlegal:rugbypass:playlist:ID:season:episode)
+        if (id.startsWith(ID_PREFIX.RUGBYPASS_PLAYLIST)) {
+            const rest = id.replace(ID_PREFIX.RUGBYPASS_PLAYLIST, '');
+            const parts = rest.split(':');
+            const playlistId = parts[0];
+            const episodeNum = parts[2] ? parseInt(parts[2]) : 1;
+            const rugbypass = getRugbyPassClient(currentConfig);
+            if (rugbypass) {
+                try {
+                    const playlist = await rugbypass.getPlaylist(playlistId);
+                    const vodIndex = episodeNum - 1;
+                    if (playlist.vods.length > vodIndex) {
+                        const vod = playlist.vods[vodIndex];
+                        const result = await rugbypass.getVodStream(vod.id);
+                        if (result.hasDrm) {
+                            return {
+                                streams: [{
+                                    name: 'RugbyPass TV',
+                                    title: 'Contenu protégé (DRM)',
+                                    externalUrl: 'https://rugbypass.tv'
+                                }]
+                            };
+                        }
+                        if (result.streamUrl) {
+                            const stream = {
+                                name: 'RugbyPass TV',
+                                title: `${vod.title || 'Rugby'}\n🏉 RugbyPass TV`,
+                                url: result.streamUrl,
+                                behaviorHints: { notWebReady: false }
+                            };
+                            if (result.subtitles?.length) {
+                                stream.subtitles = result.subtitles
+                                    .filter(s => s.format === 'vtt' || s.format === 'srt')
+                                    .map(s => ({ id: s.lang, url: s.url, lang: s.lang }));
+                            }
+                            return { streams: [stream] };
+                        }
+                    }
+                } catch (e) {
+                    console.error('[TV Legal] Erreur stream RugbyPass playlist:', e.message);
+                }
+            }
+        }
+
+        // RugbyPass Section Bucket (format: tvlegal:rugbypass:sb:SECTION:EXID:season:episode)
+        if (id.startsWith(ID_PREFIX.RUGBYPASS_SECTION_BUCKET)) {
+            const rest = id.replace(ID_PREFIX.RUGBYPASS_SECTION_BUCKET, '');
+            const parts = rest.split(':');
+            const sectionName = parts[0];
+            const bucketExid = parts[1];
+            const episodeNum = parts[3] ? parseInt(parts[3]) : 1;
+            const rugbypass = getRugbyPassClient(currentConfig);
+            if (rugbypass) {
+                try {
+                    const bucket = await rugbypass.getSectionBucketContent(sectionName, bucketExid);
+                    const vodIndex = episodeNum - 1;
+                    if (bucket.vods.length > vodIndex) {
+                        const vod = bucket.vods[vodIndex];
+                        const result = await rugbypass.getVodStream(vod.id);
+                        if (result.hasDrm) {
+                            return {
+                                streams: [{
+                                    name: 'RugbyPass TV',
+                                    title: 'Contenu protégé (DRM)',
+                                    externalUrl: 'https://rugbypass.tv'
+                                }]
+                            };
+                        }
+                        if (result.streamUrl) {
+                            const stream = {
+                                name: 'RugbyPass TV',
+                                title: `${vod.title || 'Rugby'}\n🏉 RugbyPass TV`,
+                                url: result.streamUrl,
+                                behaviorHints: { notWebReady: false }
+                            };
+                            if (result.subtitles?.length) {
+                                stream.subtitles = result.subtitles
+                                    .filter(s => s.format === 'vtt' || s.format === 'srt')
+                                    .map(s => ({ id: s.lang, url: s.url, lang: s.lang }));
+                            }
+                            return { streams: [stream] };
+                        }
+                    }
+                } catch (e) {
+                    console.error('[TV Legal] Erreur stream RugbyPass section bucket:', e.message);
+                }
+            }
+        }
+
         return { streams: [] };
 
     } catch (error) {
@@ -1451,6 +1859,7 @@ app.listen(PORT, () => {
 ║  ✓ France.tv (direct + replay)                     ║
 ║  ✓ Arte.tv (direct + replay)                       ║
 ║  ${tf1Default.isConfigured() ? '✓' : '○'} TF1+ (direct) ${tf1Default.isConfigured() ? '' : '- non configuré'}                     ║
+║  ${rugbypassDefault ? '✓' : '○'} RugbyPass TV (live + replay) ${rugbypassDefault ? '' : '- non configuré'}       ║
 ╠════════════════════════════════════════════════════╣
 ║  Catalogues :                                      ║
 ║  📺 Directs  🎬 Films  📺 Séries  🎥 Docs          ║
