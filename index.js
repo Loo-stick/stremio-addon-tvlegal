@@ -348,7 +348,7 @@ function getManifest(config) {
 
     return {
         id: 'community.tvlegal.france',
-        version: '1.4.0',
+        version: '1.6.1',
         name: 'TV Legal France',
         description: 'Chaînes françaises légales : France.tv, Arte.tv, TF1+ - Films, Séries, Documentaires, Émissions',
         logo: 'https://upload.wikimedia.org/wikipedia/fr/thumb/4/43/TNT_France_logo.svg/200px-TNT_France_logo.svg.png',
