@@ -54,7 +54,8 @@
         }
         .form-group input[type="text"],
         .form-group input[type="email"],
-        .form-group input[type="password"] {
+        .form-group input[type="password"],
+        .form-group input[type="url"] {
             width: 100%;
             padding: 12px;
             border: 1px solid rgba(255, 255, 255, 0.2);
@@ -395,6 +396,26 @@
                         </div>
                     </div>
 
+                    <!-- Catalogues TF1+ -->
+                    <div class="checkbox-group" style="margin-top: 15px;">
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="catalogs" value="tf1-series" checked>
+                            <span>📺 Séries TF1+</span>
+                        </label>
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="catalogs" value="tf1-divertissements" checked>
+                            <span>🎭 Divertissements TF1+</span>
+                        </label>
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="catalogs" value="tf1-jeunesse" checked>
+                            <span>👶 Jeunesse TF1+</span>
+                        </label>
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="catalogs" value="tf1-infos" checked>
+                            <span>📰 Infos & Mag TF1+</span>
+                        </label>
+                    </div>
+
                     <!-- Catalogues sans genres -->
                     <div class="checkbox-group" style="margin-top: 15px;">
                         <label class="checkbox-item">
@@ -444,6 +465,13 @@
                 <div class="form-group">
                     <label for="tf1Password">Mot de passe TF1+</label>
                     <input type="password" id="tf1Password" placeholder="Votre mot de passe">
+                </div>
+                <div class="form-group" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #233554;">
+                    <label for="mediaflowUrl">URL MediaFlow Proxy (pour les replays)</label>
+                    <input type="url" id="mediaflowUrl" placeholder="https://votre-mediaflow.example.com">
+                    <p style="color: #8892b0; font-size: 0.8em; margin-top: 5px;">
+                        Requis pour les replays TF1+. <a href="https://github.com/mhdzumair/mediaflow-proxy" target="_blank" style="color: #64ffda;">Hébergez votre propre instance</a>
+                    </p>
                 </div>
             </div>
 
@@ -554,6 +582,9 @@
                     if (config.tf1Password) {
                         document.getElementById('tf1Password').value = config.tf1Password;
                     }
+                    if (config.mediaflowUrl) {
+                        document.getElementById('mediaflowUrl').value = config.mediaflowUrl;
+                    }
 
                     // RugbyPass TV
                     if (config.rugbypassEmail) {
@@ -585,6 +616,7 @@
                 live: document.getElementById('enableLive').checked,
                 tf1Email: document.getElementById('tf1Email').value || null,
                 tf1Password: document.getElementById('tf1Password').value || null,
+                mediaflowUrl: document.getElementById('mediaflowUrl').value || null,
                 rugbypassEmail: document.getElementById('rugbypassEmail').value || null,
                 rugbypassPassword: document.getElementById('rugbypassPassword').value || null,
                 tmdbKey: document.getElementById('tmdbKey').value || null

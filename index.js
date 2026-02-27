@@ -20,8 +20,10 @@ const ArteClient = require('./lib/arte');
 const TF1Client = require('./lib/tf1');
 const TMDBClient = require('./lib/tmdb');
 const RugbyPassClient = require('./lib/rugbypass');
+const { setupDrmProxy, getDrmProxyUrl } = require('./lib/drm-proxy');
 
 const PORT = process.env.PORT || 7001;
+const BASE_URL = process.env.BASE_URL || 'https://tvlegal.loostick.ovh';
 
 // Clients par défaut (utilisent les variables d'environnement)
 const francetv = new FranceTVClient();
@@ -104,6 +106,8 @@ const ID_PREFIX = {
     ARTE_LIVE: 'tvlegal:arte:live',
     ARTE_VIDEO: 'tvlegal:arte:video:',
     TF1_LIVE: 'tvlegal:tf1:live:',
+    TF1_PROGRAM: 'tvlegal:tf1:program:',
+    TF1_REPLAY: 'tvlegal:tf1:replay:',
     RUGBYPASS_LIVE: 'tvlegal:rugbypass:live:',
     RUGBYPASS_VOD: 'tvlegal:rugbypass:vod:',
     RUGBYPASS_PLAYLIST: 'tvlegal:rugbypass:playlist:',
@@ -240,11 +244,52 @@ const ALL_CATALOGS = {
                 '🏴 France', '🏴 Springboks', '🏴 England', '🏴 Ireland', '🏴 Scotland', '🏴 Wales'
             ]}
         ]
+    },
+    'tf1-series': {
+        type: 'series',
+        id: 'tvlegal-tf1-series',
+        name: '📺 Séries TF1+',
+        extra: [
+            { name: 'skip', isRequired: false },
+            { name: 'genre', isRequired: false, options: ['Tous', 'Française', 'Étrangère'] }
+        ]
+    },
+    'tf1-divertissements': {
+        type: 'series',
+        id: 'tvlegal-tf1-divertissements',
+        name: '🎭 Divertissements TF1+',
+        extra: [{ name: 'skip', isRequired: false }]
+    },
+    'tf1-jeunesse': {
+        type: 'series',
+        id: 'tvlegal-tf1-jeunesse',
+        name: '👶 Jeunesse TF1+',
+        extra: [{ name: 'skip', isRequired: false }]
+    },
+    'tf1-infos': {
+        type: 'series',
+        id: 'tvlegal-tf1-infos',
+        name: '📰 Infos & Mag TF1+',
+        extra: [{ name: 'skip', isRequired: false }]
     }
 };
 
+// Mapping des catalogues TF1 vers les catégories API
+const TF1_CATALOG_CATEGORIES = {
+    'tvlegal-tf1-series': 'MAIN_SERIES_AND_FICTIONS',
+    'tvlegal-tf1-divertissements': 'MAIN_ENTERTAINEMENT',
+    'tvlegal-tf1-jeunesse': 'MAIN_YOUTH',
+    'tvlegal-tf1-infos': 'MAIN_INFOS_MAGAZINE_SPORTS'
+};
+
+// Mapping des genres TF1 vers les sous-catégories API
+const TF1_GENRE_MAPPING = {
+    'Française': 'SUB_FRENCH_FICTION',
+    'Étrangère': 'SUB_FOREIGN_FICTION'
+};
+
 // Ordre par défaut des catalogues
-const DEFAULT_CATALOG_ORDER = ['live', 'films', 'series-francetv', 'series-arte', 'docs-arte-films', 'docs-arte-series', 'docs-francetv-films', 'docs-francetv-series', 'emissions-francetv', 'emissions-arte', 'sport', 'rugby', 'rugbypass-replay'];
+const DEFAULT_CATALOG_ORDER = ['live', 'tf1-series', 'tf1-divertissements', 'tf1-jeunesse', 'tf1-infos', 'films', 'series-francetv', 'series-arte', 'docs-arte-films', 'docs-arte-series', 'docs-francetv-films', 'docs-francetv-series', 'emissions-francetv', 'emissions-arte', 'sport', 'rugby', 'rugbypass-replay'];
 
 /**
  * Génère la liste des catalogues selon la configuration
@@ -348,7 +393,7 @@ function getManifest(config) {
 
     return {
         id: 'community.tvlegal.france',
-        version: '1.6.1',
+        version: '1.7.0',
         name: 'TV Legal France',
         description: 'Chaînes françaises légales : France.tv, Arte.tv, TF1+ - Films, Séries, Documentaires, Émissions',
         logo: 'https://upload.wikimedia.org/wikipedia/fr/thumb/4/43/TNT_France_logo.svg/200px-TNT_France_logo.svg.png',
@@ -394,81 +439,85 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
         // === DIRECTS ===
         if (id === 'tvlegal-live') {
             const metas = [];
-
-            // France.tv Directs
-            try {
-                const ftvLives = await francetv.getLiveChannels();
-                for (const live of ftvLives) {
-                    metas.push({
-                        id: `${ID_PREFIX.FRANCETV_LIVE}${live.liveId}`,
-                        type: 'tv',
-                        name: live.title,
-                        poster: live.image,
-                        posterShape: 'landscape',
-                        description: live.description,
-                        background: live.image
-                    });
-                }
-            } catch (e) {
-                console.error('[TV Legal] Erreur FranceTV lives:', e.message);
-            }
-
-            // Arte Direct
-            try {
-                const arteLive = await arte.getLiveStream();
-                if (arteLive && arteLive.streamUrl) {
-                    metas.push({
-                        id: ID_PREFIX.ARTE_LIVE,
-                        type: 'tv',
-                        name: 'Arte - Direct',
-                        poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Arte_Logo_2017.svg/400px-Arte_Logo_2017.svg.png',
-                        posterShape: 'landscape',
-                        description: arteLive.subtitle || 'En direct sur Arte'
-                    });
-                }
-            } catch (e) {
-                console.error('[TV Legal] Erreur Arte live:', e.message);
-            }
-
-            // TF1+ Directs (si configuré)
-            if (tf1.isConfigured()) {
-                try {
-                    const tf1Lives = await tf1.getLiveChannels();
-                    for (const live of tf1Lives) {
-                        metas.push({
-                            id: `${ID_PREFIX.TF1_LIVE}${live.id}`,
-                            type: 'tv',
-                            name: live.title,
-                            poster: live.image || live.logo,
-                            posterShape: 'landscape',
-                            description: live.description,
-                            logo: live.logo
-                        });
-                    }
-                } catch (e) {
-                    console.error('[TV Legal] Erreur TF1+ lives:', e.message);
-                }
-            }
-
-            // RugbyPass TV Live (si configuré)
             const rugbypass = getRugbyPassClient(currentConfig);
-            if (rugbypass) {
-                try {
-                    const events = await rugbypass.getLiveEvents();
-                    for (const event of events) {
-                        if (event.live) {
-                            metas.push({
-                                id: `${ID_PREFIX.RUGBYPASS_LIVE}${event.id}`,
-                                type: 'tv',
-                                name: `RugbyPass - ${event.title}`,
-                                poster: event.thumbnailUrl,
-                                posterShape: 'landscape',
-                                description: event.description || '🏉 En direct sur RugbyPass TV'
-                            });
-                        }
-                    }
-                } catch (e) {
-                    console.error('[TV Legal] Erreur RugbyPass lives:', e.message);
+
+            // Exécuter tous les appels en parallèle
+            const [ftvResult, arteResult, tf1Result, rugbyResult] = await Promise.all([
+                // France.tv Directs
+                francetv.getLiveChannels().catch(e => {
+                    console.error('[TV Legal] Erreur FranceTV lives:', e.message);
+                    return [];
+                }),
+                // Arte Direct
+                arte.getLiveStream().catch(e => {
+                    console.error('[TV Legal] Erreur Arte live:', e.message);
+                    return null;
+                }),
+                // TF1+ Directs (si configuré)
+                tf1.isConfigured()
+                    ? tf1.getLiveChannels().catch(e => {
+                        console.error('[TV Legal] Erreur TF1+ lives:', e.message);
+                        return [];
+                    })
+                    : Promise.resolve([]),
+                // RugbyPass TV Live (si configuré)
+                rugbypass
+                    ? rugbypass.getLiveEvents().catch(e => {
+                        console.error('[TV Legal] Erreur RugbyPass lives:', e.message);
+                        return [];
+                    })
+                    : Promise.resolve([])
+            ]);
+
+            // France.tv
+            for (const live of ftvResult) {
+                metas.push({
+                    id: `${ID_PREFIX.FRANCETV_LIVE}${live.liveId}`,
+                    type: 'tv',
+                    name: live.title,
+                    poster: live.image,
+                    posterShape: 'landscape',
+                    description: live.description,
+                    background: live.image
+                });
+            }
+
+            // Arte
+            if (arteResult && arteResult.streamUrl) {
+                metas.push({
+                    id: ID_PREFIX.ARTE_LIVE,
+                    type: 'tv',
+                    name: 'Arte - Direct',
+                    poster: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Arte_Logo_2017.svg/400px-Arte_Logo_2017.svg.png',
+                    posterShape: 'landscape',
+                    description: arteResult.subtitle || 'En direct sur Arte'
+                });
+            }
+
+            // TF1+
+            for (const live of tf1Result) {
+                metas.push({
+                    id: `${ID_PREFIX.TF1_LIVE}${live.id}`,
+                    type: 'tv',
+                    name: live.title,
+                    poster: live.image || live.logo,
+                    posterShape: 'landscape',
+                    description: live.description,
+                    logo: live.logo
+                });
+            }
+
+            // RugbyPass
+            for (const event of rugbyResult) {
+                if (event.live) {
+                    metas.push({
+                        id: `${ID_PREFIX.RUGBYPASS_LIVE}${event.id}`,
+                        type: 'tv',
+                        name: `RugbyPass - ${event.title}`,
+                        poster: event.thumbnailUrl,
+                        posterShape: 'landscape',
+                        description: event.description || '🏉 En direct sur RugbyPass TV'
+                    });
                 }
             }
 
@@ -476,7 +525,7 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
             return { metas: addShareLinks(metas) };
         }
 
-        // === FILMS (Arte Cinéma) ===
+        // === FILMS (TF1+ + Arte Cinéma) ===
         if (id === 'tvlegal-films') {
             const metas = [];
             const genre = extra?.genre;
@@ -493,77 +542,137 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
                 'Romance': ['Romance']
             };
 
-            // Calcul de la page Arte depuis skip (50 items par page Stremio)
-            const artePage = Math.floor(skip / 50) + 1;
+            // 1. D'abord les films TF1+ (si configuré)
+            if (tf1.isConfigured()) {
+                try {
+                    const tf1Channels = ['tf1', 'tmc', 'tfx', 'lci', 'tf1-series-films'];
+                    const seenSlugs = new Set();
 
-            try {
-                const videos = await arte.getCategory('CIN', artePage);
+                    for (const channel of tf1Channels) {
+                        const programs = await tf1.getProgramsByChannel(channel);
 
-                // Sans filtre ou sans TMDB, on retourne directement
-                if (!genreFilter || !tmdb) {
-                    for (const video of videos) {
-                        metas.push({
-                            id: `${ID_PREFIX.ARTE_VIDEO}${video.programId}`,
-                            type: 'movie',
-                            name: video.title,
-                            poster: video.image || video.imageLarge,
-                            posterShape: 'poster',
-                            description: video.description || video.subtitle,
-                            background: video.imageLarge,
-                            releaseInfo: video.durationLabel
-                        });
-                    }
-                } else {
-                    // Avec filtre: traiter par lots de 5 pour éviter trop de requêtes simultanées
-                    const BATCH_SIZE = 5;
-                    const tmdbGenres = genreMapping[genreFilter] || [genreFilter];
+                        for (const prog of programs) {
+                            if (seenSlugs.has(prog.slug)) continue;
 
-                    for (let i = 0; i < videos.length; i += BATCH_SIZE) {
-                        const batch = videos.slice(i, i + BATCH_SIZE);
-                        const results = await Promise.all(
-                            batch.map(async (video) => {
+                            // Filtrer par catégorie MAIN_MOVIES
+                            const categories = prog.categories || [];
+                            const isMovie = categories.some(c => c.type === 'MAIN_MOVIES');
+                            if (!isMovie) continue;
+
+                            seenSlugs.add(prog.slug);
+
+                            // Filtrer par genre TMDB si demandé
+                            if (genreFilter && tmdb) {
                                 try {
-                                    const tmdbResults = await tmdb.searchMovies(video.title);
+                                    const tmdbResults = await tmdb.searchMovies(prog.name);
                                     const genres = tmdbResults?.[0]?.genres || [];
+                                    const tmdbGenres = genreMapping[genreFilter] || [genreFilter];
                                     const hasGenre = genres.some(g =>
                                         tmdbGenres.some(tg =>
                                             g.toLowerCase().includes(tg.toLowerCase()) ||
                                             tg.toLowerCase().includes(g.toLowerCase())
                                         )
                                     );
-                                    return hasGenre ? { video, genres } : null;
+                                    if (!hasGenre) continue;
                                 } catch (e) {
-                                    return null;
+                                    continue;
                                 }
-                            })
-                        );
+                            }
 
-                        for (const result of results) {
-                            if (result) {
-                                metas.push({
-                                    id: `${ID_PREFIX.ARTE_VIDEO}${result.video.programId}`,
-                                    type: 'movie',
-                                    name: result.video.title,
-                                    poster: result.video.imageLarge || result.video.image,
-                                    posterShape: 'poster',
-                                    description: result.video.description || result.video.subtitle,
-                                    background: result.video.imageLarge,
-                                    releaseInfo: result.video.durationLabel,
-                                    genre: result.genres
-                                });
+                            const progDecoration = prog.decoration || {};
+                            const progImage = progDecoration.image?.sources?.[0]?.url ||
+                                            progDecoration.thumbnail?.sources?.[0]?.url ||
+                                            progDecoration.background?.sources?.[0]?.url;
+
+                            metas.push({
+                                id: `${ID_PREFIX.TF1_PROGRAM}${prog.slug}`,
+                                type: 'movie',
+                                name: prog.name,
+                                poster: progImage,
+                                posterShape: 'poster',
+                                description: progDecoration.description || prog.description || '',
+                                background: progImage,
+                                releaseInfo: 'TF1+'
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.error('[TV Legal] Erreur TF1 Films:', e.message);
+                }
+            }
+
+            // 2. Ensuite les films Arte
+            try {
+                // Récupère plusieurs pages Arte pour avoir assez de contenu
+                const artePages = [1, 2, 3];
+                for (const artePage of artePages) {
+                    const videos = await arte.getCategory('CIN', artePage);
+
+                    // Sans filtre ou sans TMDB, on ajoute directement
+                    if (!genreFilter || !tmdb) {
+                        for (const video of videos) {
+                            metas.push({
+                                id: `${ID_PREFIX.ARTE_VIDEO}${video.programId}`,
+                                type: 'movie',
+                                name: video.title,
+                                poster: video.image || video.imageLarge,
+                                posterShape: 'poster',
+                                description: video.description || video.subtitle,
+                                background: video.imageLarge,
+                                releaseInfo: 'Arte'
+                            });
+                        }
+                    } else {
+                        // Avec filtre: traiter par lots
+                        const BATCH_SIZE = 5;
+                        const tmdbGenres = genreMapping[genreFilter] || [genreFilter];
+
+                        for (let i = 0; i < videos.length; i += BATCH_SIZE) {
+                            const batch = videos.slice(i, i + BATCH_SIZE);
+                            const results = await Promise.all(
+                                batch.map(async (video) => {
+                                    try {
+                                        const tmdbResults = await tmdb.searchMovies(video.title);
+                                        const genres = tmdbResults?.[0]?.genres || [];
+                                        const hasGenre = genres.some(g =>
+                                            tmdbGenres.some(tg =>
+                                                g.toLowerCase().includes(tg.toLowerCase()) ||
+                                                tg.toLowerCase().includes(g.toLowerCase())
+                                            )
+                                        );
+                                        return hasGenre ? { video, genres } : null;
+                                    } catch (e) {
+                                        return null;
+                                    }
+                                })
+                            );
+
+                            for (const result of results) {
+                                if (result) {
+                                    metas.push({
+                                        id: `${ID_PREFIX.ARTE_VIDEO}${result.video.programId}`,
+                                        type: 'movie',
+                                        name: result.video.title,
+                                        poster: result.video.imageLarge || result.video.image,
+                                        posterShape: 'poster',
+                                        description: result.video.description || result.video.subtitle,
+                                        background: result.video.imageLarge,
+                                        releaseInfo: 'Arte',
+                                        genre: result.genres
+                                    });
+                                }
                             }
                         }
-
-                        // Stop si on a assez de résultats
-                        if (metas.length >= 50) break;
                     }
                 }
             } catch (e) {
                 console.error('[TV Legal] Erreur Arte Films:', e.message);
             }
 
-            console.log(`[TV Legal] ${metas.length} films (filtre: ${genre || 'aucun'}, page: ${artePage})`);
-            return { metas: addShareLinks(metas) };
+            // Pagination sur le total
+            const paginated = metas.slice(skip, skip + 50);
+            console.log(`[TV Legal] ${paginated.length} films (TF1+Arte, filtre: ${genre || 'aucun'}, skip: ${skip})`);
+            return { metas: addShareLinks(paginated) };
         }
 
         // === SÉRIES FRANCE.TV ===
@@ -1016,6 +1125,80 @@ builder.defineCatalogHandler(async ({ type, id, extra }) => {
             return { metas: addShareLinks(metas) };
         }
 
+        // === TF1+ CATALOGUES (Séries, Films, Divertissements, Jeunesse, Infos) ===
+        if (id.startsWith('tvlegal-tf1-')) {
+            const metas = [];
+            const seenPrograms = new Set();
+            const categoryFilter = TF1_CATALOG_CATEGORIES[id]; // Ex: MAIN_SERIES_AND_FICTIONS
+            const catalogType = ALL_CATALOGS[id.replace('tvlegal-', '')]?.type || 'series';
+
+            // Filtre par genre (uniquement pour séries TF1)
+            const genre = extra?.genre;
+            const genreFilter = (genre && genre !== 'Tous') ? TF1_GENRE_MAPPING[genre] : null;
+
+            // Vérifie que TF1 est configuré
+            if (!tf1.isConfigured()) {
+                console.log('[TV Legal] TF1+ non configuré - catalogue vide');
+                return { metas: [] };
+            }
+
+            try {
+                // Récupérer les programmes de toutes les chaînes
+                const channelSlugs = ['tf1', 'tmc', 'tfx', 'lci', 'tf1-series-films'];
+
+                for (const channel of channelSlugs) {
+                    const programs = await tf1.getProgramsByChannel(channel);
+
+                    for (const prog of programs) {
+                        // Dédupliquer par slug
+                        if (seenPrograms.has(prog.slug)) continue;
+
+                        const categories = prog.categories || [];
+
+                        // Filtrer par catégorie principale si définie
+                        if (categoryFilter) {
+                            const hasCategory = categories.some(c => c.type === categoryFilter);
+                            if (!hasCategory) continue;
+                        }
+
+                        // Filtrer par genre (sous-catégorie) si défini
+                        if (genreFilter) {
+                            const hasGenre = categories.some(c => c.type === genreFilter);
+                            if (!hasGenre) continue;
+                        }
+
+                        seenPrograms.add(prog.slug);
+
+                        // Extraire l'image du programme
+                        const progDecoration = prog.decoration || {};
+                        const progImage = progDecoration.image?.sources?.[0]?.url ||
+                                        progDecoration.thumbnail?.sources?.[0]?.url ||
+                                        progDecoration.background?.sources?.[0]?.url;
+
+                        metas.push({
+                            id: `${ID_PREFIX.TF1_PROGRAM}${prog.slug}`,
+                            type: catalogType,
+                            name: prog.name,
+                            poster: progImage,
+                            posterShape: 'poster',
+                            description: progDecoration.description || prog.description || '',
+                            background: progImage,
+                            releaseInfo: channel.toUpperCase()
+                        });
+                    }
+                }
+
+                // Pagination
+                const paginated = metas.slice(skip, skip + 50);
+                console.log(`[TV Legal] ${paginated.length} programmes TF1+ ${categoryFilter || 'tous'} genre:${genre || 'tous'} (skip: ${skip})`);
+                return { metas: addShareLinks(paginated) };
+
+            } catch (e) {
+                console.error('[TV Legal] Erreur catalogue TF1:', e.message);
+                return { metas: [] };
+            }
+        }
+
         return { metas: [] };
 
     } catch (error) {
@@ -1211,6 +1394,148 @@ builder.defineMetaHandler(async ({ type, id }) => {
             }
         }
 
+        // TF1 Program (série ou film)
+        if (id.startsWith(ID_PREFIX.TF1_PROGRAM)) {
+            const programSlug = id.replace(ID_PREFIX.TF1_PROGRAM, '');
+            try {
+                console.log(`[TV Legal] Meta TF1 programme: ${programSlug}`);
+
+                // Récupère les vidéos du programme
+                const videos = await tf1.getVideosByProgram(programSlug);
+
+                // Filtre les vidéos accessibles (BASIC = gratuit)
+                const accessibleVideos = videos.filter(v => {
+                    const rights = v.rights || [];
+                    return rights.includes('BASIC');
+                });
+
+                if (accessibleVideos.length === 0) {
+                    console.log(`[TV Legal] Aucun épisode accessible pour ${programSlug}`);
+                    return { meta: null };
+                }
+
+                // Récupère les infos du programme depuis le premier épisode
+                const firstEp = accessibleVideos[0];
+                const firstDecoration = firstEp.decoration || {};
+                let progImage = null;
+                const firstImages = firstDecoration.images || [];
+                for (const img of firstImages) {
+                    const sources = img.sources || [];
+                    if (sources[0]?.url) {
+                        progImage = sources[0].url;
+                        break;
+                    }
+                }
+
+                // Utiliser le type de la requête Stremio (plus rapide que recherche API)
+                const isMovie = type === 'movie';
+                console.log(`[TV Legal] Programme ${programSlug} type: ${type}`);
+
+                // Essayer d'améliorer avec TMDB
+                let tmdbPoster = null;
+                let tmdbBackground = null;
+                let progDescription = firstDecoration.description || '';
+                const tmdb = getTMDBClient(currentConfig);
+                const programName = programSlug.replace(/-\d+$/, '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+                if (tmdb) {
+                    try {
+                        const tmdbResults = isMovie
+                            ? await tmdb.searchMovies(programName)
+                            : await tmdb.searchSeries(programName);
+                        if (tmdbResults && tmdbResults.length > 0) {
+                            tmdbPoster = tmdbResults[0].poster;
+                            tmdbBackground = tmdbResults[0].backdrop;
+                            progDescription = tmdbResults[0].overview || progDescription;
+                        }
+                    } catch (e) {}
+                }
+
+                // Si c'est un film, retourner un type movie sans épisodes
+                if (isMovie) {
+                    return {
+                        meta: {
+                            id,
+                            type: 'movie',
+                            name: programName,
+                            poster: tmdbPoster || progImage,
+                            description: progDescription,
+                            background: tmdbBackground || progImage,
+                            links: [{ name: 'Voir sur TF1+', category: 'share', url: `https://www.tf1.fr/${programSlug}` }]
+                        }
+                    };
+                }
+
+                // Sinon c'est une série, formate les épisodes
+                const episodes = accessibleVideos.map((video, index) => {
+                    const decoration = video.decoration || {};
+
+                    // Extraire l'image
+                    const images = decoration.images || [];
+                    let thumbnail = null;
+                    for (const img of images) {
+                        const sources = img.sources || [];
+                        if (sources[0]?.url) {
+                            thumbnail = sources[0].url;
+                            break;
+                        }
+                    }
+
+                    return {
+                        id: `${ID_PREFIX.TF1_REPLAY}${video.id}`,
+                        title: decoration.label || video.slug || `Épisode ${index + 1}`,
+                        season: video.season || 1,
+                        episode: video.episode || (index + 1),
+                        thumbnail: thumbnail,
+                        overview: decoration.description || '',
+                        released: video.date
+                    };
+                });
+
+                return {
+                    meta: {
+                        id,
+                        type: 'series',
+                        name: programName,
+                        poster: tmdbPoster || progImage,
+                        description: progDescription,
+                        background: tmdbBackground || progImage,
+                        videos: episodes,
+                        links: [{ name: 'Voir sur TF1+', category: 'share', url: `https://www.tf1.fr/${programSlug}` }]
+                    }
+                };
+
+            } catch (e) {
+                console.error('[TV Legal] Erreur meta TF1 programme:', e.message);
+            }
+        }
+
+        // TF1 Replay (épisode individuel - pour le stream)
+        if (id.startsWith(ID_PREFIX.TF1_REPLAY)) {
+            const videoId = id.replace(ID_PREFIX.TF1_REPLAY, '');
+            try {
+                // Récupère les infos via mediainfo
+                const info = await tf1.getMediaInfo(videoId);
+                if (info && !info.error) {
+                    return {
+                        meta: {
+                            id,
+                            type: 'series',
+                            name: info.programName || info.title,
+                            poster: info.preview || info.sqPreview,
+                            description: info.shortTitle || info.title,
+                            background: info.preview,
+                            runtime: info.duration ? `${Math.round(info.duration / 60)} min` : undefined,
+                            releaseInfo: info.channel?.toUpperCase(),
+                            links: [{ name: 'Voir sur TF1+', category: 'share', url: `https://www.tf1.fr/${info.programSlug}` }]
+                        }
+                    };
+                }
+            } catch (e) {
+                console.error('[TV Legal] Erreur meta TF1 replay:', e.message);
+            }
+        }
+
         // RugbyPass Live
         if (id.startsWith(ID_PREFIX.RUGBYPASS_LIVE)) {
             const eventId = id.replace(ID_PREFIX.RUGBYPASS_LIVE, '');
@@ -1350,6 +1675,19 @@ builder.defineMetaHandler(async ({ type, id }) => {
  */
 builder.defineStreamHandler(async ({ type, id }) => {
     console.log(`[TV Legal] Stream: ${id}`);
+
+    // Test DRM MediaFlow - URL de test statique
+    if (id === 'tvlegal-drm-test') {
+        const testHlsUrl = 'https://tvlegal.loostick.ovh/mediaflow/proxy/mpd/manifest.m3u8?d=https%3A//vod-das.cdn-3.diff.tf1.fr/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjaXAiOiI5MC4zNi43OC4xMzciLCJjbWNkIjoiIiwiZXhwIjoxNzcyMTQ1MDU4LCJnaWQiOiIzZTQwZmUxZDdkZDc0NGUyOThiOTMwNTZlY2U1YjJkMSIsImlhdCI6MTc3MjEzMDY1OCwiaXNzIjoiZGVsaXZlcnkiLCJtYXhiIjoyODAwMDAwLCJzdGVtIjoiLzIvVVNQLTB4MC8wOC82MC8xNDQyMDg2MC9zc20vYjNjMDdmMGM0MWYxMjE2ZTBhMDQ2MjBlODUzODNmY2NkZTRiNjQ2YzQwNjJhY2EyODE0ZjA2NzhlOWZiNzIzNS5pc20vMTQ0MjA4NjAubXBkIiwic3ViIjoiM2U0MGZlMWQ3ZGQ3NDRlMjk4YjkzMDU2ZWNlNWIyZDEifQ.h5fS3FD6pDBrBjB2kqt1hqDP1YCSJrvpXfMqqEOsK04/2/USP-0x0/08/60/14420860/ssm/b3c07f0c41f1216e0a04620e85383fccde4b646c4062aca2814f0678e9fb7235.ism/14420860.mpd&key_id=tItGeyuWVNCiccjnogVeqA&key=h9YdX8Gx0Jd_m04bKHuMGQ';
+        return {
+            streams: [{
+                name: 'TF1 DRM Test',
+                title: '🔓 Test Décryptage MediaFlow\n720p HLS',
+                url: testHlsUrl,
+                behaviorHints: { notWebReady: true }
+            }]
+        };
+    }
 
     // Récupère les clients selon la config
     const tmdb = getTMDBClient(currentConfig);
@@ -1499,6 +1837,162 @@ builder.defineStreamHandler(async ({ type, id }) => {
                         behaviorHints: { notWebReady: false }
                     }]
                 };
+            }
+        }
+
+        // TF1 Program (film) - récupère le premier épisode et renvoie le stream
+        if (id.startsWith(ID_PREFIX.TF1_PROGRAM)) {
+            const programSlug = id.replace(ID_PREFIX.TF1_PROGRAM, '');
+            console.log(`[TV Legal] TF1 Program stream: ${programSlug}`);
+
+            try {
+                // Récupère les vidéos du programme
+                const videos = await tf1.getVideosByProgram(programSlug);
+                const accessibleVideos = videos.filter(v => {
+                    const rights = v.rights || [];
+                    return rights.includes('BASIC');
+                });
+
+                if (accessibleVideos.length === 0) {
+                    return { streams: [] };
+                }
+
+                // Utilise la première vidéo (pour un film, c'est le film lui-même)
+                const videoId = accessibleVideos[0].id;
+                // Redirige vers le handler TF1_REPLAY en modifiant l'ID
+                id = `${ID_PREFIX.TF1_REPLAY}${videoId}`;
+                console.log(`[TV Legal] Redirection vers TF1 Replay: ${videoId}`);
+            } catch (e) {
+                console.error('[TV Legal] Erreur TF1 Program stream:', e.message);
+                return { streams: [] };
+            }
+        }
+
+        // TF1 Replay (avec décryptage DRM via MediaFlow)
+        if (id.startsWith(ID_PREFIX.TF1_REPLAY)) {
+            const videoId = id.replace(ID_PREFIX.TF1_REPLAY, '');
+            console.log(`[TV Legal] TF1 Replay stream: ${videoId}`);
+
+            // Vérifier que l'utilisateur a configuré son proxy MediaFlow
+            const userMediaflowUrl = currentConfig?.mediaflowUrl;
+            if (!userMediaflowUrl) {
+                console.log('[TV Legal] TF1 replay: pas de MediaFlow configuré');
+                return {
+                    streams: [{
+                        name: 'TF1+',
+                        title: '⚠️ MediaFlow Proxy requis\nConfigurez votre propre instance\ndans les paramètres de l\'addon',
+                        externalUrl: 'https://github.com/mhdzumair/mediaflow-proxy'
+                    }]
+                };
+            }
+
+            try {
+                const fetch = require('node-fetch');
+                const { execSync } = require('child_process');
+
+                // Récupérer les infos média avec format DASH
+                const token = await tf1.ensureToken();
+                const mediaUrl = `https://mediainfo.tf1.fr/mediainfocombo/${videoId}?context=MYTF1&pver=5010000&format=dash`;
+
+                const mediaResponse = await fetch(mediaUrl, {
+                    headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'Mozilla/5.0' }
+                });
+                const mediaData = await mediaResponse.json();
+                const delivery = mediaData.delivery;
+
+                if (!delivery || !delivery.url || !delivery.drms || delivery.drm !== 'widevine') {
+                    console.log('[TV Legal] TF1 replay sans DRM ou erreur');
+                    return { streams: [] };
+                }
+
+                const mpdUrl = delivery.url;
+                const licenseUrl = delivery.drms[0].url;
+
+                // Extraire PSSH du MPD
+                const mpdResponse = await fetch(mpdUrl);
+                const mpdContent = await mpdResponse.text();
+                const psshMatch = mpdContent.match(/urn:uuid:EDEF8BA9-79D6-4ACE-A3C8-27DCD51D21ED.*?<cenc:pssh>([^<]+)/si);
+
+                if (!psshMatch) {
+                    console.error('[TV Legal] TF1 replay: pas de PSSH Widevine');
+                    return { streams: [] };
+                }
+                const pssh = psshMatch[1].trim();
+
+                // Extraire les clés via pywidevine
+                console.log('[TV Legal] TF1 replay: extraction clés Widevine...');
+                const pythonScript = `
+from pywidevine.cdm import Cdm
+from pywidevine.device import Device
+from pywidevine.pssh import PSSH
+import requests
+import json
+
+device = Device.load("/projets/stremio-addon-tvlegal/device.wvd")
+cdm = Cdm.from_device(device)
+session_id = cdm.open()
+pssh = PSSH("${pssh}")
+challenge = cdm.get_license_challenge(session_id, pssh)
+
+response = requests.post(
+    "${licenseUrl}",
+    data=challenge,
+    headers={"Content-Type": "application/octet-stream", "User-Agent": "Mozilla/5.0"}
+)
+
+if response.status_code == 200:
+    cdm.parse_license(session_id, response.content)
+    keys = []
+    for key in cdm.get_keys(session_id):
+        if key.type == "CONTENT":
+            keys.append({"kid": key.kid.hex, "key": key.key.hex()})
+    print(json.dumps(keys))
+else:
+    print("[]")
+
+cdm.close(session_id)
+`;
+
+                const keysJson = execSync(`python3 -c '${pythonScript.replace(/'/g, "'\"'\"'")}'`, {
+                    encoding: 'utf-8',
+                    timeout: 30000
+                }).trim();
+
+                const keys = JSON.parse(keysJson);
+
+                if (keys.length === 0) {
+                    console.error('[TV Legal] TF1 replay: pas de clés extraites');
+                    return { streams: [] };
+                }
+
+                console.log(`[TV Legal] TF1 replay: ${keys.length} clés extraites`);
+
+                // Construire l'URL MediaFlow
+                const keyIds = keys.map(k => k.kid).join(',');
+                const keyValues = keys.map(k => k.key).join(',');
+
+                // Utilise le proxy MediaFlow de l'utilisateur
+                const mediaflowBase = userMediaflowUrl.replace(/\/+$/, ''); // Enlève le slash final
+                const mediaflowUrl = `${mediaflowBase}/proxy/mpd/manifest.m3u8?` +
+                    `d=${encodeURIComponent(mpdUrl)}&` +
+                    `key_id=${keyIds}&` +
+                    `key=${keyValues}`;
+
+                // Récupérer le titre
+                const info = await tf1.getMediaInfo(videoId);
+
+                return {
+                    streams: [{
+                        name: 'TF1+',
+                        title: `${info?.shortTitle || info?.title || 'Replay TF1'}\n🔓 Décrypté - HD`,
+                        url: mediaflowUrl,
+                        behaviorHints: { notWebReady: true }
+                    }]
+                };
+
+            } catch (e) {
+                console.error('[TV Legal] Erreur stream TF1 replay:', e.message);
+                return { streams: [] };
             }
         }
 
@@ -1799,6 +2293,9 @@ app.use((req, res, next) => {
     next();
 });
 
+// Proxy DRM pour les contenus Widevine (TF1 replays, etc.)
+setupDrmProxy(app);
+
 // Page de configuration
 app.get('/configure', (req, res) => {
     res.sendFile(path.join(__dirname, 'configure.html'));
@@ -1818,6 +2315,176 @@ app.get('/', (req, res) => {
 app.get('/manifest.json', (req, res) => {
     res.json(getManifest(null));
 });
+
+// ============== Mini addon de test DRM ==============
+// IMPORTANT: Ces routes DOIVENT être avant /:config pour éviter l'interception
+
+app.get('/drm-test/manifest.json', (req, res) => {
+    res.json({
+        id: 'ovh.loostick.drm-test',
+        version: '1.0.0',
+        name: 'DRM Test',
+        description: 'Test DRM Widevine via proxy dashif:Laurl',
+        resources: ['catalog', 'meta', 'stream'],
+        types: ['movie'],
+        idPrefixes: ['drm-test:'],
+        catalogs: [{
+            type: 'movie',
+            id: 'drm-test-catalog',
+            name: 'DRM Test'
+        }]
+    });
+});
+
+// Catalogue avec un seul item de test
+app.get('/drm-test/catalog/movie/drm-test-catalog.json', (req, res) => {
+    res.json({
+        metas: [{
+            id: 'drm-test:tf1-mysteres',
+            type: 'movie',
+            name: 'Test DRM TF1+',
+            poster: 'https://photos.tf1.fr/1200/0/vignette-16-9-mysteres-amour-saison-37-b0d66d-ea9d42-0@1x.jpg',
+            description: 'Test de lecture DRM Widevine via dashif:Laurl proxy'
+        }]
+    });
+});
+
+// Meta pour l'item de test
+app.get('/drm-test/meta/movie/:id.json', (req, res) => {
+    res.json({
+        meta: {
+            id: 'drm-test:tf1-mysteres',
+            type: 'movie',
+            name: 'Test DRM TF1+',
+            poster: 'https://photos.tf1.fr/1200/0/vignette-16-9-mysteres-amour-saison-37-b0d66d-ea9d42-0@1x.jpg',
+            background: 'https://photos.tf1.fr/1920/0/vignette-16-9-mysteres-amour-saison-37-b0d66d-ea9d42-0@1x.jpg',
+            description: 'Test de lecture DRM Widevine via dashif:Laurl proxy.\n\nCe test utilise un épisode de "Les mystères de l\'amour" sur TF1+.'
+        }
+    });
+});
+
+app.get('/drm-test/stream/movie/:id.json', async (req, res) => {
+    const fetch = require('node-fetch');
+    const { execSync } = require('child_process');
+
+    try {
+        // Credentials TF1 (temporaire pour test)
+        const tf1 = new TF1Client('REDACTED_EMAIL', 'REDACTED_PASSWORD');
+        const token = await tf1.ensureToken();
+
+        // Récupérer un replay TF1 avec DRM
+        const mediaId = '450dd43d-04ed-4d6e-8b4b-42f21188c76e'; // Koh-Lanta
+        const url = `https://mediainfo.tf1.fr/mediainfocombo/${mediaId}?context=MYTF1&pver=5010000&format=dash`;
+
+        const response = await fetch(url, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'User-Agent': 'Mozilla/5.0'
+            }
+        });
+
+        const data = await response.json();
+        const delivery = data.delivery;
+
+        if (!delivery || !delivery.url || !delivery.drms) {
+            return res.json({ streams: [] });
+        }
+
+        const mpdUrl = delivery.url;
+        const licenseUrl = delivery.drms[0].url;
+
+        // Extraire PSSH du MPD
+        const mpdResponse = await fetch(mpdUrl);
+        const mpdContent = await mpdResponse.text();
+        const psshMatch = mpdContent.match(/urn:uuid:EDEF8BA9-79D6-4ACE-A3C8-27DCD51D21ED.*?<cenc:pssh>([^<]+)/si);
+
+        if (!psshMatch) {
+            console.error('[DRM Test] No Widevine PSSH found');
+            return res.json({ streams: [] });
+        }
+        const pssh = psshMatch[1].trim();
+
+        // Extraire les clés via pywidevine
+        console.log('[DRM Test] Extracting Widevine keys...');
+        const pythonScript = `
+from pywidevine.cdm import Cdm
+from pywidevine.device import Device
+from pywidevine.pssh import PSSH
+import requests
+import json
+
+device = Device.load("/projets/stremio-addon-tvlegal/device.wvd")
+cdm = Cdm.from_device(device)
+session_id = cdm.open()
+pssh = PSSH("${pssh}")
+challenge = cdm.get_license_challenge(session_id, pssh)
+
+response = requests.post(
+    "${licenseUrl}",
+    data=challenge,
+    headers={"Content-Type": "application/octet-stream", "User-Agent": "Mozilla/5.0"}
+)
+
+if response.status_code == 200:
+    cdm.parse_license(session_id, response.content)
+    keys = []
+    for key in cdm.get_keys(session_id):
+        if key.type == "CONTENT":
+            keys.append({"kid": key.kid.hex, "key": key.key.hex()})
+    print(json.dumps(keys))
+else:
+    print("[]")
+
+cdm.close(session_id)
+`;
+
+        const keysJson = execSync(`python3 -c '${pythonScript.replace(/'/g, "'\"'\"'")}'`, {
+            encoding: 'utf-8',
+            timeout: 30000
+        }).trim();
+
+        const keys = JSON.parse(keysJson);
+
+        if (keys.length === 0) {
+            console.error('[DRM Test] No keys extracted');
+            return res.json({ streams: [] });
+        }
+
+        console.log(`[DRM Test] Extracted ${keys.length} keys`);
+
+        // Construire l'URL MediaFlow
+        const host = req.get('host');
+        const protocol = host.includes('localhost') ? 'http' : 'https';
+        const baseUrl = `${protocol}://${host}`;
+
+        const keyIds = keys.map(k => k.kid).join(',');
+        const keyValues = keys.map(k => k.key).join(',');
+
+        const mediaflowUrl = `${baseUrl}/mediaflow/proxy/mpd/manifest.m3u8?` +
+            `d=${encodeURIComponent(mpdUrl)}&` +
+            `key_id=${keyIds}&` +
+            `key=${keyValues}`;
+
+        console.log('[DRM Test] MediaFlow URL ready');
+
+        res.json({
+            streams: [{
+                name: 'TF1+',
+                title: 'Koh-Lanta (Replay)\n🔓 Décrypté via MediaFlow',
+                url: mediaflowUrl,
+                behaviorHints: {
+                    notWebReady: true
+                }
+            }]
+        });
+
+    } catch (e) {
+        console.error('[DRM Test] Error:', e.message);
+        res.json({ streams: [] });
+    }
+});
+
+// ============== Fin mini addon DRM ==============
 
 // Routes avec configuration encodée
 app.get('/:config/manifest.json', (req, res) => {
@@ -1848,6 +2515,76 @@ app.use('/:config', (req, res, next) => {
 
 // Routes Stremio SDK avec config (/:config/catalog, /:config/meta, /:config/stream)
 app.use('/:config', getRouter(builder.getInterface()));
+
+// Test DRM Proxy - page de diagnostic
+app.get('/drm/test', (req, res) => {
+    res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DRM Proxy Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1a1a2e; color: #eee; }
+        input, button { padding: 10px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        pre { background: #16213e; padding: 15px; overflow: auto; max-height: 400px; }
+        .success { color: #4ade80; }
+        .error { color: #f87171; }
+    </style>
+</head>
+<body>
+    <h1>🔐 DRM Proxy Test</h1>
+    <p>Test l'injection dashif:Laurl dans un manifest DASH</p>
+
+    <h3>Params:</h3>
+    <input id="stream" placeholder="MPD URL (stream)" value="">
+    <input id="license" placeholder="License URL" value="">
+    <input id="token" placeholder="Auth Token" value="">
+    <button onclick="testProxy()">Tester le Proxy MPD</button>
+
+    <h3>Résultat:</h3>
+    <pre id="result">En attente...</pre>
+
+    <script>
+        async function testProxy() {
+            const stream = document.getElementById('stream').value;
+            const license = document.getElementById('license').value;
+            const token = document.getElementById('token').value;
+
+            if (!stream || !license || !token) {
+                document.getElementById('result').innerHTML = '<span class="error">Remplis tous les champs</span>';
+                return;
+            }
+
+            const url = '/drm/mpd?stream=' + encodeURIComponent(stream) +
+                        '&license=' + encodeURIComponent(license) +
+                        '&token=' + encodeURIComponent(token);
+
+            try {
+                const response = await fetch(url);
+                const mpd = await response.text();
+
+                if (mpd.includes('dashif:Laurl')) {
+                    document.getElementById('result').innerHTML =
+                        '<span class="success">✅ dashif:Laurl injecté avec succès!</span>\\n\\n' +
+                        escapeHtml(mpd);
+                } else {
+                    document.getElementById('result').innerHTML =
+                        '<span class="error">❌ dashif:Laurl non trouvé dans le MPD</span>\\n\\n' +
+                        escapeHtml(mpd);
+                }
+            } catch (e) {
+                document.getElementById('result').innerHTML = '<span class="error">Erreur: ' + e.message + '</span>';
+            }
+        }
+
+        function escapeHtml(text) {
+            return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+    </script>
+</body>
+</html>
+    `);
+});
 
 // Démarrage du serveur
 app.listen(PORT, () => {

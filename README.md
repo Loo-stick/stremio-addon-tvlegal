@@ -4,7 +4,7 @@ Addon Stremio pour accéder aux chaînes et contenus **100% légaux** :
 
 - **France.tv** - Direct + Replay (France 2, 3, 4, 5, franceinfo)
 - **Arte.tv** - Direct + Replay
-- **TF1+** - Direct uniquement (TF1, TMC, TFX, LCI + chaînes FAST)
+- **TF1+** - Direct + Replay* (TF1, TMC, TFX, LCI + chaînes FAST)
 - **RugbyPass TV** - Live + Replay (World Rugby, matchs, documentaires, séries)
 
 ## Installation
@@ -122,8 +122,10 @@ L'addon sera disponible sur :
 |--------|--------|--------|--------------|
 | France.tv | ✅ | ✅ | Non |
 | Arte.tv | ✅ | ✅ | Non |
-| TF1+ | ✅ | ❌ (DRM) | Oui (gratuit) |
+| TF1+ | ✅ | ✅* | Oui (gratuit) |
 | RugbyPass TV | ✅ | ✅ | Oui (gratuit) |
+
+*\* TF1+ Replay nécessite un proxy de décryptage hébergé par l'utilisateur (voir section ci-dessous)*
 
 ### Catalogues disponibles
 
@@ -157,11 +159,17 @@ Chaque contenu dispose d'un bouton de partage qui renvoie vers la source origina
 
 L'addon répond automatiquement aux IDs IMDB (`tt1234567`). Cela signifie que lorsque vous consultez une fiche série/film depuis un autre catalogue (Cinemeta, etc.), l'addon TV Legal proposera automatiquement les sources Arte/France.tv si le contenu est disponible.
 
+### TF1+ Replay
+
+Les contenus replay TF1+ sont protégés par DRM Widevine. Pour y accéder, l'utilisateur doit héberger et configurer sa propre infrastructure de décryptage. Cette fonctionnalité est optionnelle et **l'utilisateur est seul responsable** de sa mise en place et de son utilisation dans le respect de la législation applicable.
+
+La configuration s'effectue via la page de configuration de l'addon.
+
 ## Limitations connues
 
-- **TF1+ Replay** : Protégé par DRM Widevine, non supporté
 - **Certains contenus France.tv** : Peuvent être protégés par DRM
 - **Géolocalisation** : Certains contenus sont réservés à la France métropolitaine
+- **TF1+ Replay** : Nécessite une infrastructure de décryptage auto-hébergée (voir section ci-dessus)
 
 ## Déploiement
 
@@ -219,7 +227,7 @@ Cet addon est un projet **personnel et non commercial** qui agrège des contenus
 
 **L'auteur de ce projet :**
 - Ne fournit, n'héberge et ne stocke aucun contenu média
-- Ne contourne aucune protection DRM (les contenus protégés ne sont pas accessibles)
+- Ne fournit pas d'infrastructure de décryptage DRM (l'utilisateur doit fournir la sienne)
 - Respecte les conditions d'utilisation des services sources
 - N'est pas affilié à France Télévisions, Arte, TF1 ou World Rugby
 
@@ -228,6 +236,7 @@ Cet addon est un projet **personnel et non commercial** qui agrège des contenus
 - L'auteur décline toute responsabilité quant à l'utilisation de cet addon
 - L'utilisateur est seul responsable du respect des conditions d'utilisation des services tiers
 - L'utilisateur est seul responsable de la légalité de l'utilisation dans sa juridiction
+- L'utilisateur qui choisit de configurer une infrastructure de décryptage assume l'entière responsabilité de cette utilisation
 
 **Usage des credentials :**
 - Les identifiants TF1+, RugbyPass TV et clés API sont encodés dans l'URL de l'addon
@@ -245,7 +254,7 @@ This addon is a **personal, non-commercial project** that aggregates content exc
 
 **The author of this project:**
 - Does not provide, host, or store any media content
-- Does not bypass any DRM protection (protected content is not accessible)
+- Does not provide DRM decryption infrastructure (users must provide their own)
 - Respects the terms of service of source platforms
 - Is not affiliated with France Télévisions, Arte, TF1, or World Rugby
 
@@ -254,6 +263,7 @@ This addon is a **personal, non-commercial project** that aggregates content exc
 - The author disclaims all liability for the use of this addon
 - Users are solely responsible for complying with third-party service terms
 - Users are solely responsible for the legality of use in their jurisdiction
+- Users who choose to configure decryption infrastructure assume full responsibility for its use
 
 **Credentials usage:**
 - TF1+, RugbyPass TV credentials and API keys are encoded in the addon URL
