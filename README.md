@@ -13,6 +13,7 @@ Addon Stremio pour accéder aux chaînes et contenus **100% légaux** :
 
 - Node.js 14+
 - npm
+- Python 3 + pywidevine (optionnel, pour TF1+ Replay uniquement)
 
 ### Installation
 
@@ -110,6 +111,8 @@ services:
       - RUGBYPASS_EMAIL=votre@email.com      # Optionnel
       - RUGBYPASS_PASSWORD=votremotdepasse   # Optionnel
       - TMDB_API_KEY=votre_cle_api           # Optionnel
+    volumes:
+      - ./device.wvd:/app/device.wvd         # Optionnel - pour TF1+ Replay
 ```
 
 L'addon sera disponible sur :
@@ -159,11 +162,49 @@ Chaque contenu dispose d'un bouton de partage qui renvoie vers la source origina
 
 L'addon répond automatiquement aux IDs IMDB (`tt1234567`). Cela signifie que lorsque vous consultez une fiche série/film depuis un autre catalogue (Cinemeta, etc.), l'addon TV Legal proposera automatiquement les sources Arte/France.tv si le contenu est disponible.
 
-### TF1+ Replay
+### TF1+ Replay (DRM Widevine)
 
-Les contenus replay TF1+ sont protégés par DRM Widevine. Pour y accéder, l'utilisateur doit héberger et configurer sa propre infrastructure de décryptage. Cette fonctionnalité est optionnelle et **l'utilisateur est seul responsable** de sa mise en place et de son utilisation dans le respect de la législation applicable.
+Les contenus replay TF1+ sont protégés par DRM Widevine. Pour y accéder, vous devez :
 
-La configuration s'effectue via la page de configuration de l'addon.
+#### 1. Héberger MediaFlow Proxy
+
+[MediaFlow Proxy](https://github.com/mhdzumair/mediaflow-proxy) est un proxy qui convertit les streams DASH chiffrés en HLS lisibles par Stremio.
+
+```bash
+# Installation
+pip install mediaflow-proxy
+
+# Lancement
+mediaflow-proxy --host 0.0.0.0 --port 8787
+```
+
+Ou avec Docker :
+```bash
+docker run -d -p 8787:8787 mhdzumair/mediaflow-proxy
+```
+
+#### 2. Fournir un fichier device.wvd
+
+Le fichier `device.wvd` contient les informations CDM (Content Decryption Module) nécessaires pour extraire les clés de décryptage.
+
+**Comment obtenir un device.wvd :**
+- Suivez le guide : [pywidevine - Extracting Device Files](https://github.com/devine-dl/pywidevine?tab=readme-ov-file#extracting-l3-cdm-from-an-android-device)
+- Ou utilisez [dumper](https://github.com/hyugogirubato/KeyDive) sur un appareil Android rooté
+
+**Installation :**
+- **Serveur local** : Placez `device.wvd` dans le dossier de l'addon
+- **Docker** : Montez le fichier via volume :
+  ```bash
+  docker run -v /chemin/vers/device.wvd:/app/device.wvd ...
+  ```
+
+#### 3. Configurer l'addon
+
+Dans la page de configuration (`/configure`), renseignez :
+- **URL MediaFlow** : L'URL de votre instance MediaFlow (ex: `https://mediaflow.mondomaine.com`)
+- **Identifiants TF1+** : Email et mot de passe de votre compte TF1+
+
+> **Note légale** : L'utilisateur est seul responsable de la mise en place et de l'utilisation de cette infrastructure dans le respect de la législation applicable.
 
 ## Limitations connues
 

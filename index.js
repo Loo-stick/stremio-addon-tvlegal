@@ -6,7 +6,7 @@
  * - Arte.tv - Direct + Replay
  * - TF1+ (TF1, TMC, TFX, LCI + FAST) - Direct uniquement (compte requis)
  *
- * @version 1.2.0
+ * @version 1.8.0
  * @license MIT
  */
 
@@ -21,6 +21,7 @@ const TF1Client = require('./lib/tf1');
 const TMDBClient = require('./lib/tmdb');
 const RugbyPassClient = require('./lib/rugbypass');
 const { setupDrmProxy, getDrmProxyUrl } = require('./lib/drm-proxy');
+const widevine = require('./lib/widevine');
 
 const PORT = process.env.PORT || 7001;
 const BASE_URL = process.env.BASE_URL || 'https://tvlegal.loostick.ovh';
@@ -393,7 +394,7 @@ function getManifest(config) {
 
     return {
         id: 'community.tvlegal.france',
-        version: '1.7.0',
+        version: '1.8.0',
         name: 'TV Legal France',
         description: 'Chaînes françaises légales : France.tv, Arte.tv, TF1+ - Films, Séries, Documentaires, Émissions',
         logo: 'https://upload.wikimedia.org/wikipedia/fr/thumb/4/43/TNT_France_logo.svg/200px-TNT_France_logo.svg.png',
@@ -1738,19 +1739,6 @@ builder.defineMetaHandler(async ({ type, id }) => {
 builder.defineStreamHandler(async ({ type, id }) => {
     console.log(`[TV Legal] Stream: ${id}`);
 
-    // Test DRM MediaFlow - URL de test statique
-    if (id === 'tvlegal-drm-test') {
-        const testHlsUrl = 'https://tvlegal.loostick.ovh/mediaflow/proxy/mpd/manifest.m3u8?d=https%3A//vod-das.cdn-3.diff.tf1.fr/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjaXAiOiI5MC4zNi43OC4xMzciLCJjbWNkIjoiIiwiZXhwIjoxNzcyMTQ1MDU4LCJnaWQiOiIzZTQwZmUxZDdkZDc0NGUyOThiOTMwNTZlY2U1YjJkMSIsImlhdCI6MTc3MjEzMDY1OCwiaXNzIjoiZGVsaXZlcnkiLCJtYXhiIjoyODAwMDAwLCJzdGVtIjoiLzIvVVNQLTB4MC8wOC82MC8xNDQyMDg2MC9zc20vYjNjMDdmMGM0MWYxMjE2ZTBhMDQ2MjBlODUzODNmY2NkZTRiNjQ2YzQwNjJhY2EyODE0ZjA2NzhlOWZiNzIzNS5pc20vMTQ0MjA4NjAubXBkIiwic3ViIjoiM2U0MGZlMWQ3ZGQ3NDRlMjk4YjkzMDU2ZWNlNWIyZDEifQ.h5fS3FD6pDBrBjB2kqt1hqDP1YCSJrvpXfMqqEOsK04/2/USP-0x0/08/60/14420860/ssm/b3c07f0c41f1216e0a04620e85383fccde4b646c4062aca2814f0678e9fb7235.ism/14420860.mpd&key_id=tItGeyuWVNCiccjnogVeqA&key=h9YdX8Gx0Jd_m04bKHuMGQ';
-        return {
-            streams: [{
-                name: 'TF1 DRM Test',
-                title: '🔓 Test Décryptage MediaFlow\n720p HLS',
-                url: testHlsUrl,
-                behaviorHints: { notWebReady: true }
-            }]
-        };
-    }
-
     // Récupère les clients selon la config
     const tmdb = getTMDBClient(currentConfig);
     const tf1 = getTF1Client(currentConfig);
@@ -1930,27 +1918,38 @@ builder.defineStreamHandler(async ({ type, id }) => {
             }
         }
 
-        // TF1 Replay (avec décryptage DRM via MediaFlow)
+        // TF1 Replay (avec décryptage DRM via MediaFlow + pywidevine)
         if (id.startsWith(ID_PREFIX.TF1_REPLAY)) {
             const videoId = id.replace(ID_PREFIX.TF1_REPLAY, '');
             console.log(`[TV Legal] TF1 Replay stream: ${videoId}`);
 
-            // Vérifier que l'utilisateur a configuré son proxy MediaFlow
+            // Vérifier les prérequis
             const userMediaflowUrl = currentConfig?.mediaflowUrl;
             if (!userMediaflowUrl) {
                 console.log('[TV Legal] TF1 replay: pas de MediaFlow configuré');
                 return {
                     streams: [{
                         name: 'TF1+',
-                        title: '⚠️ MediaFlow Proxy requis\nConfigurez votre propre instance\ndans les paramètres de l\'addon',
+                        title: '⚠️ MediaFlow Proxy requis\nConfigurez votre propre instance',
                         externalUrl: 'https://github.com/mhdzumair/mediaflow-proxy'
+                    }]
+                };
+            }
+
+            const wvdStatus = widevine.checkAvailability();
+            if (!wvdStatus.available) {
+                console.log('[TV Legal] TF1 replay:', wvdStatus.error);
+                return {
+                    streams: [{
+                        name: 'TF1+',
+                        title: `⚠️ ${wvdStatus.error}\nPlacez votre fichier device.wvd\ndans le dossier de l'addon`,
+                        externalUrl: 'https://github.com/devine-dl/pywidevine'
                     }]
                 };
             }
 
             try {
                 const fetch = require('node-fetch');
-                const { execSync } = require('child_process');
 
                 // Récupérer les infos média avec format DASH
                 const token = await tf1.ensureToken();
@@ -1970,75 +1969,33 @@ builder.defineStreamHandler(async ({ type, id }) => {
                 const mpdUrl = delivery.url;
                 const licenseUrl = delivery.drms[0].url;
 
-                // Extraire PSSH du MPD
-                const mpdResponse = await fetch(mpdUrl);
-                const mpdContent = await mpdResponse.text();
-                const psshMatch = mpdContent.match(/urn:uuid:EDEF8BA9-79D6-4ACE-A3C8-27DCD51D21ED.*?<cenc:pssh>([^<]+)/si);
+                console.log('[TV Legal] TF1 replay: extraction des clés Widevine...');
 
-                if (!psshMatch) {
-                    console.error('[TV Legal] TF1 replay: pas de PSSH Widevine');
-                    return { streams: [] };
-                }
-                const pssh = psshMatch[1].trim();
+                // Extraire les clés via pywidevine (utilise WVD_PATH de l'environnement)
+                const keys = await widevine.extractKeysFromMpd(mpdUrl, licenseUrl, token);
 
-                // Extraire les clés via pywidevine
-                console.log('[TV Legal] TF1 replay: extraction clés Widevine...');
-                const pythonScript = `
-from pywidevine.cdm import Cdm
-from pywidevine.device import Device
-from pywidevine.pssh import PSSH
-import requests
-import json
-
-device = Device.load("/projets/stremio-addon-tvlegal/device.wvd")
-cdm = Cdm.from_device(device)
-session_id = cdm.open()
-pssh = PSSH("${pssh}")
-challenge = cdm.get_license_challenge(session_id, pssh)
-
-response = requests.post(
-    "${licenseUrl}",
-    data=challenge,
-    headers={"Content-Type": "application/octet-stream", "User-Agent": "Mozilla/5.0"}
-)
-
-if response.status_code == 200:
-    cdm.parse_license(session_id, response.content)
-    keys = []
-    for key in cdm.get_keys(session_id):
-        if key.type == "CONTENT":
-            keys.append({"kid": key.kid.hex, "key": key.key.hex()})
-    print(json.dumps(keys))
-else:
-    print("[]")
-
-cdm.close(session_id)
-`;
-
-                const keysJson = execSync(`python3 -c '${pythonScript.replace(/'/g, "'\"'\"'")}'`, {
-                    encoding: 'utf-8',
-                    timeout: 30000
-                }).trim();
-
-                const keys = JSON.parse(keysJson);
-
-                if (keys.length === 0) {
-                    console.error('[TV Legal] TF1 replay: pas de clés extraites');
-                    return { streams: [] };
+                if (!keys || keys.length === 0) {
+                    console.error('[TV Legal] TF1 replay: échec extraction des clés');
+                    return {
+                        streams: [{
+                            name: 'TF1+',
+                            title: '❌ Erreur extraction clés DRM\nVérifiez votre fichier device.wvd',
+                            externalUrl: 'https://github.com/devine-dl/pywidevine'
+                        }]
+                    };
                 }
 
-                console.log(`[TV Legal] TF1 replay: ${keys.length} clés extraites`);
-
-                // Construire l'URL MediaFlow
+                // Construire les paramètres pour MediaFlow (ClearKey mode)
                 const keyIds = keys.map(k => k.kid).join(',');
                 const keyValues = keys.map(k => k.key).join(',');
 
-                // Utilise le proxy MediaFlow de l'utilisateur
-                const mediaflowBase = userMediaflowUrl.replace(/\/+$/, ''); // Enlève le slash final
+                console.log(`[TV Legal] TF1 replay: ${keys.length} clé(s), envoi vers MediaFlow...`);
+
+                const mediaflowBase = userMediaflowUrl.replace(/\/+$/, '');
                 const mediaflowUrl = `${mediaflowBase}/proxy/mpd/manifest.m3u8?` +
                     `d=${encodeURIComponent(mpdUrl)}&` +
-                    `key_id=${keyIds}&` +
-                    `key=${keyValues}`;
+                    `key_id=${encodeURIComponent(keyIds)}&` +
+                    `key=${encodeURIComponent(keyValues)}`;
 
                 // Récupérer le titre
                 const info = await tf1.getMediaInfo(videoId);
@@ -2046,7 +2003,7 @@ cdm.close(session_id)
                 return {
                     streams: [{
                         name: 'TF1+',
-                        title: `${info?.shortTitle || info?.title || 'Replay TF1'}\n🔓 Décrypté - HD`,
+                        title: `${info?.shortTitle || info?.title || 'Replay TF1'}\n📺 via MediaFlow`,
                         url: mediaflowUrl,
                         behaviorHints: { notWebReady: true }
                     }]
@@ -2378,176 +2335,6 @@ app.get('/manifest.json', (req, res) => {
     res.json(getManifest(null));
 });
 
-// ============== Mini addon de test DRM ==============
-// IMPORTANT: Ces routes DOIVENT être avant /:config pour éviter l'interception
-
-app.get('/drm-test/manifest.json', (req, res) => {
-    res.json({
-        id: 'ovh.loostick.drm-test',
-        version: '1.0.0',
-        name: 'DRM Test',
-        description: 'Test DRM Widevine via proxy dashif:Laurl',
-        resources: ['catalog', 'meta', 'stream'],
-        types: ['movie'],
-        idPrefixes: ['drm-test:'],
-        catalogs: [{
-            type: 'movie',
-            id: 'drm-test-catalog',
-            name: 'DRM Test'
-        }]
-    });
-});
-
-// Catalogue avec un seul item de test
-app.get('/drm-test/catalog/movie/drm-test-catalog.json', (req, res) => {
-    res.json({
-        metas: [{
-            id: 'drm-test:tf1-mysteres',
-            type: 'movie',
-            name: 'Test DRM TF1+',
-            poster: 'https://photos.tf1.fr/1200/0/vignette-16-9-mysteres-amour-saison-37-b0d66d-ea9d42-0@1x.jpg',
-            description: 'Test de lecture DRM Widevine via dashif:Laurl proxy'
-        }]
-    });
-});
-
-// Meta pour l'item de test
-app.get('/drm-test/meta/movie/:id.json', (req, res) => {
-    res.json({
-        meta: {
-            id: 'drm-test:tf1-mysteres',
-            type: 'movie',
-            name: 'Test DRM TF1+',
-            poster: 'https://photos.tf1.fr/1200/0/vignette-16-9-mysteres-amour-saison-37-b0d66d-ea9d42-0@1x.jpg',
-            background: 'https://photos.tf1.fr/1920/0/vignette-16-9-mysteres-amour-saison-37-b0d66d-ea9d42-0@1x.jpg',
-            description: 'Test de lecture DRM Widevine via dashif:Laurl proxy.\n\nCe test utilise un épisode de "Les mystères de l\'amour" sur TF1+.'
-        }
-    });
-});
-
-app.get('/drm-test/stream/movie/:id.json', async (req, res) => {
-    const fetch = require('node-fetch');
-    const { execSync } = require('child_process');
-
-    try {
-        // Credentials TF1 (temporaire pour test)
-        const tf1 = new TF1Client('REDACTED_EMAIL', 'REDACTED_PASSWORD');
-        const token = await tf1.ensureToken();
-
-        // Récupérer un replay TF1 avec DRM
-        const mediaId = '450dd43d-04ed-4d6e-8b4b-42f21188c76e'; // Koh-Lanta
-        const url = `https://mediainfo.tf1.fr/mediainfocombo/${mediaId}?context=MYTF1&pver=5010000&format=dash`;
-
-        const response = await fetch(url, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'User-Agent': 'Mozilla/5.0'
-            }
-        });
-
-        const data = await response.json();
-        const delivery = data.delivery;
-
-        if (!delivery || !delivery.url || !delivery.drms) {
-            return res.json({ streams: [] });
-        }
-
-        const mpdUrl = delivery.url;
-        const licenseUrl = delivery.drms[0].url;
-
-        // Extraire PSSH du MPD
-        const mpdResponse = await fetch(mpdUrl);
-        const mpdContent = await mpdResponse.text();
-        const psshMatch = mpdContent.match(/urn:uuid:EDEF8BA9-79D6-4ACE-A3C8-27DCD51D21ED.*?<cenc:pssh>([^<]+)/si);
-
-        if (!psshMatch) {
-            console.error('[DRM Test] No Widevine PSSH found');
-            return res.json({ streams: [] });
-        }
-        const pssh = psshMatch[1].trim();
-
-        // Extraire les clés via pywidevine
-        console.log('[DRM Test] Extracting Widevine keys...');
-        const pythonScript = `
-from pywidevine.cdm import Cdm
-from pywidevine.device import Device
-from pywidevine.pssh import PSSH
-import requests
-import json
-
-device = Device.load("/projets/stremio-addon-tvlegal/device.wvd")
-cdm = Cdm.from_device(device)
-session_id = cdm.open()
-pssh = PSSH("${pssh}")
-challenge = cdm.get_license_challenge(session_id, pssh)
-
-response = requests.post(
-    "${licenseUrl}",
-    data=challenge,
-    headers={"Content-Type": "application/octet-stream", "User-Agent": "Mozilla/5.0"}
-)
-
-if response.status_code == 200:
-    cdm.parse_license(session_id, response.content)
-    keys = []
-    for key in cdm.get_keys(session_id):
-        if key.type == "CONTENT":
-            keys.append({"kid": key.kid.hex, "key": key.key.hex()})
-    print(json.dumps(keys))
-else:
-    print("[]")
-
-cdm.close(session_id)
-`;
-
-        const keysJson = execSync(`python3 -c '${pythonScript.replace(/'/g, "'\"'\"'")}'`, {
-            encoding: 'utf-8',
-            timeout: 30000
-        }).trim();
-
-        const keys = JSON.parse(keysJson);
-
-        if (keys.length === 0) {
-            console.error('[DRM Test] No keys extracted');
-            return res.json({ streams: [] });
-        }
-
-        console.log(`[DRM Test] Extracted ${keys.length} keys`);
-
-        // Construire l'URL MediaFlow
-        const host = req.get('host');
-        const protocol = host.includes('localhost') ? 'http' : 'https';
-        const baseUrl = `${protocol}://${host}`;
-
-        const keyIds = keys.map(k => k.kid).join(',');
-        const keyValues = keys.map(k => k.key).join(',');
-
-        const mediaflowUrl = `${baseUrl}/mediaflow/proxy/mpd/manifest.m3u8?` +
-            `d=${encodeURIComponent(mpdUrl)}&` +
-            `key_id=${keyIds}&` +
-            `key=${keyValues}`;
-
-        console.log('[DRM Test] MediaFlow URL ready');
-
-        res.json({
-            streams: [{
-                name: 'TF1+',
-                title: 'Koh-Lanta (Replay)\n🔓 Décrypté via MediaFlow',
-                url: mediaflowUrl,
-                behaviorHints: {
-                    notWebReady: true
-                }
-            }]
-        });
-
-    } catch (e) {
-        console.error('[DRM Test] Error:', e.message);
-        res.json({ streams: [] });
-    }
-});
-
-// ============== Fin mini addon DRM ==============
-
 // Routes avec configuration encodée
 app.get('/:config/manifest.json', (req, res) => {
     const config = parseConfig(req.params.config);
@@ -2652,7 +2439,7 @@ app.get('/drm/test', (req, res) => {
 app.listen(PORT, () => {
     console.log(`
 ╔════════════════════════════════════════════════════╗
-║         TV Legal France - Stremio v1.4.0           ║
+║         TV Legal France - Stremio v1.8.0           ║
 ╠════════════════════════════════════════════════════╣
 ║  Sources légales :                                 ║
 ║  ✓ France.tv (direct + replay)                     ║
