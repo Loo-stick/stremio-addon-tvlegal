@@ -32,3 +32,9 @@ CLAUDE.md
 # Widevine device (sensitive)
 device.wvd
 *.wvd
+
+# Local DRM testing tools (NOT part of addon)
+drm-proxy-server.py
+test-*.js
+test-*.py
+start-mediaflow.sh
