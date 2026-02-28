@@ -27,3 +27,8 @@ Thumbs.db
 # Runtime
 *.pid
 *.seed
+CLAUDE.md
+
+# Widevine device (sensitive)
+device.wvd
+*.wvd
