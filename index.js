@@ -1241,40 +1241,54 @@ builder.defineMetaHandler(async ({ type, id }) => {
             const videoId = id.replace(ID_PREFIX.FRANCETV_VIDEO, '');
             const info = await francetv.getVideoInfo(videoId);
             if (info) {
+                // Recherche IMDB ID via TMDB pour sous-titres externes
+                let imdbId = null;
+                const tmdb = getTMDBClient(currentConfig);
+                if (tmdb && info.title) {
+                    try {
+                        const tmdbResults = type === 'series'
+                            ? await tmdb.searchSeries(info.title)
+                            : await tmdb.searchMovies(info.title);
+                        if (tmdbResults?.[0]?.imdb_id) {
+                            imdbId = tmdbResults[0].imdb_id;
+                        }
+                    } catch (e) {}
+                }
+
                 // Si demandé comme série (ex: émissions), créer un épisode unique
                 if (type === 'series') {
-                    return {
-                        meta: {
-                            id,
-                            type: 'series',
-                            name: info.title,
-                            poster: info.image,
-                            description: info.description,
-                            background: info.image,
-                            videos: [{
-                                id: id,
-                                title: info.title,
-                                season: 1,
-                                episode: 1,
-                                thumbnail: info.image,
-                                overview: info.description
-                            }],
-                            links: getShareLinks(id)
-                        }
-                    };
-                }
-                return {
-                    meta: {
+                    const seriesMeta = {
                         id,
-                        type: 'movie',
+                        type: 'series',
                         name: info.title,
                         poster: info.image,
                         description: info.description,
                         background: info.image,
-                        runtime: info.duration ? `${Math.round(info.duration / 60)} min` : undefined,
+                        videos: [{
+                            id: id,
+                            title: info.title,
+                            season: 1,
+                            episode: 1,
+                            thumbnail: info.image,
+                            overview: info.description
+                        }],
                         links: getShareLinks(id)
-                    }
+                    };
+                    if (imdbId) seriesMeta.imdb_id = imdbId;
+                    return { meta: seriesMeta };
+                }
+                const movieMeta = {
+                    id,
+                    type: 'movie',
+                    name: info.title,
+                    poster: info.image,
+                    description: info.description,
+                    background: info.image,
+                    runtime: info.duration ? `${Math.round(info.duration / 60)} min` : undefined,
+                    links: getShareLinks(id)
                 };
+                if (imdbId) movieMeta.imdb_id = imdbId;
+                return { meta: movieMeta };
             }
         }
 
@@ -1293,18 +1307,30 @@ builder.defineMetaHandler(async ({ type, id }) => {
                     overview: ep.description
                 }));
 
-                return {
-                    meta: {
-                        id,
-                        type: 'series',
-                        name: info.title,
-                        poster: info.poster || info.image,
-                        description: info.description,
-                        background: info.background,
-                        videos,
-                        links: getShareLinks(id)
-                    }
+                // Recherche IMDB ID via TMDB pour sous-titres externes
+                let imdbId = null;
+                const tmdb = getTMDBClient(currentConfig);
+                if (tmdb && info.title) {
+                    try {
+                        const tmdbResults = await tmdb.searchSeries(info.title);
+                        if (tmdbResults?.[0]?.imdb_id) {
+                            imdbId = tmdbResults[0].imdb_id;
+                        }
+                    } catch (e) {}
+                }
+
+                const seriesMeta = {
+                    id,
+                    type: 'series',
+                    name: info.title,
+                    poster: info.poster || info.image,
+                    description: info.description,
+                    background: info.background,
+                    videos,
+                    links: getShareLinks(id)
                 };
+                if (imdbId) seriesMeta.imdb_id = imdbId;
+                return { meta: seriesMeta };
             }
         }
 
@@ -1342,36 +1368,64 @@ builder.defineMetaHandler(async ({ type, id }) => {
                 }));
 
                 const image = meta?.images?.[0]?.url || episodes[0]?.image;
+                const seriesTitle = meta?.title?.split(' - ')[0] || 'Série Arte';
 
-                return {
-                    meta: {
-                        id,
-                        type: 'series',
-                        name: meta?.title?.split(' - ')[0] || 'Série Arte',
-                        poster: image,
-                        description: meta?.description,
-                        background: image,
-                        videos,
-                        links: getShareLinks(id)
-                    }
+                // Recherche IMDB ID via TMDB pour sous-titres externes
+                let imdbId = null;
+                const tmdb = getTMDBClient(currentConfig);
+                if (tmdb && seriesTitle) {
+                    try {
+                        const tmdbResults = await tmdb.searchSeries(seriesTitle);
+                        if (tmdbResults?.[0]?.imdb_id) {
+                            imdbId = tmdbResults[0].imdb_id;
+                        }
+                    } catch (e) {}
+                }
+
+                const seriesMeta = {
+                    id,
+                    type: 'series',
+                    name: seriesTitle,
+                    poster: image,
+                    description: meta?.description,
+                    background: image,
+                    videos,
+                    links: getShareLinks(id)
                 };
+                if (imdbId) seriesMeta.imdb_id = imdbId;
+                return { meta: seriesMeta };
             }
 
             const info = await arte.getVideoMeta(programId);
             if (info) {
                 const image = info.images?.find(i => i.url)?.url?.replace('__SIZE__', '400x225');
                 const metaType = type === 'series' ? 'series' : 'movie';
-                return {
-                    meta: {
-                        id,
-                        type: metaType,
-                        name: info.title,
-                        poster: image,
-                        description: info.description,
-                        runtime: info.duration ? `${Math.round(info.duration / 60)} min` : undefined,
-                        links: getShareLinks(id)
-                    }
+
+                // Recherche IMDB ID via TMDB pour sous-titres externes
+                let imdbId = null;
+                const tmdb = getTMDBClient(currentConfig);
+                if (tmdb && info.title) {
+                    try {
+                        const tmdbResults = metaType === 'series'
+                            ? await tmdb.searchSeries(info.title)
+                            : await tmdb.searchMovies(info.title);
+                        if (tmdbResults?.[0]?.imdb_id) {
+                            imdbId = tmdbResults[0].imdb_id;
+                        }
+                    } catch (e) {}
+                }
+
+                const videoMeta = {
+                    id,
+                    type: metaType,
+                    name: info.title,
+                    poster: image,
+                    description: info.description,
+                    runtime: info.duration ? `${Math.round(info.duration / 60)} min` : undefined,
+                    links: getShareLinks(id)
                 };
+                if (imdbId) videoMeta.imdb_id = imdbId;
+                return { meta: videoMeta };
             }
         }
 
@@ -1431,9 +1485,10 @@ builder.defineMetaHandler(async ({ type, id }) => {
                 const isMovie = type === 'movie';
                 console.log(`[TV Legal] Programme ${programSlug} type: ${type}`);
 
-                // Essayer d'améliorer avec TMDB
+                // Essayer d'améliorer avec TMDB (et récupérer IMDB ID pour sous-titres)
                 let tmdbPoster = null;
                 let tmdbBackground = null;
+                let tmdbImdbId = null;
                 let progDescription = firstDecoration.description || '';
                 const tmdb = getTMDBClient(currentConfig);
                 const programName = programSlug.replace(/-\d+$/, '').replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -1446,6 +1501,7 @@ builder.defineMetaHandler(async ({ type, id }) => {
                         if (tmdbResults && tmdbResults.length > 0) {
                             tmdbPoster = tmdbResults[0].poster;
                             tmdbBackground = tmdbResults[0].backdrop;
+                            tmdbImdbId = tmdbResults[0].imdb_id;
                             progDescription = tmdbResults[0].overview || progDescription;
                         }
                     } catch (e) {}
@@ -1453,17 +1509,20 @@ builder.defineMetaHandler(async ({ type, id }) => {
 
                 // Si c'est un film, retourner un type movie sans épisodes
                 if (isMovie) {
-                    return {
-                        meta: {
-                            id,
-                            type: 'movie',
-                            name: programName,
-                            poster: tmdbPoster || progImage,
-                            description: progDescription,
-                            background: tmdbBackground || progImage,
-                            links: [{ name: 'Voir sur TF1+', category: 'share', url: `https://www.tf1.fr/${programSlug}` }]
-                        }
+                    const movieMeta = {
+                        id,
+                        type: 'movie',
+                        name: programName,
+                        poster: tmdbPoster || progImage,
+                        description: progDescription,
+                        background: tmdbBackground || progImage,
+                        links: [{ name: 'Voir sur TF1+', category: 'share', url: `https://www.tf1.fr/${programSlug}` }]
                     };
+                    // Ajouter IMDB ID pour permettre les sous-titres externes (Subsense, OpenSubtitles)
+                    if (tmdbImdbId) {
+                        movieMeta.imdb_id = tmdbImdbId;
+                    }
+                    return { meta: movieMeta };
                 }
 
                 // Sinon c'est une série, formate les épisodes
@@ -1492,18 +1551,21 @@ builder.defineMetaHandler(async ({ type, id }) => {
                     };
                 });
 
-                return {
-                    meta: {
-                        id,
-                        type: 'series',
-                        name: programName,
-                        poster: tmdbPoster || progImage,
-                        description: progDescription,
-                        background: tmdbBackground || progImage,
-                        videos: episodes,
-                        links: [{ name: 'Voir sur TF1+', category: 'share', url: `https://www.tf1.fr/${programSlug}` }]
-                    }
+                const seriesMeta = {
+                    id,
+                    type: 'series',
+                    name: programName,
+                    poster: tmdbPoster || progImage,
+                    description: progDescription,
+                    background: tmdbBackground || progImage,
+                    videos: episodes,
+                    links: [{ name: 'Voir sur TF1+', category: 'share', url: `https://www.tf1.fr/${programSlug}` }]
                 };
+                // Ajouter IMDB ID pour permettre les sous-titres externes (Subsense, OpenSubtitles)
+                if (tmdbImdbId) {
+                    seriesMeta.imdb_id = tmdbImdbId;
+                }
+                return { meta: seriesMeta };
 
             } catch (e) {
                 console.error('[TV Legal] Erreur meta TF1 programme:', e.message);
