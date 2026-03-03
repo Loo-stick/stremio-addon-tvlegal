@@ -211,6 +211,77 @@ Dans la page de configuration (`/configure`), renseignez :
 - **Certains contenus France.tv** : Peuvent être protégés par DRM
 - **Géolocalisation** : Certains contenus sont réservés à la France métropolitaine
 - **TF1+ Replay** : Nécessite une infrastructure de décryptage auto-hébergée (voir section ci-dessus)
+- **TF1+ Direct sur VPS** : TF1 bloque les IPs datacenter (voir section ci-dessous)
+
+## TF1+ Direct sur VPS (Oracle, OVH, AWS...)
+
+TF1 bloque les IPs de datacenter pour leur chaîne principale. Si vous hébergez l'addon sur un VPS et que TF1 ne fonctionne pas (TMC/TFX marchent mais pas TF1), utilisez **Cloudflare WARP** comme proxy.
+
+### Installation de WARP
+
+```bash
+# Ajouter la clé GPG de Cloudflare
+curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+
+# Ajouter le dépôt
+echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+
+# Installer WARP
+sudo apt update
+sudo apt install cloudflare-warp
+
+# Enregistrer le client
+warp-cli registration new
+
+# Activer le mode proxy SOCKS5 (indispensable pour Docker)
+warp-cli mode proxy
+
+# Connecter le tunnel
+warp-cli connect
+
+# Vérifier que le port 40000 est actif
+warp-cli settings
+
+# Tester que WARP fonctionne (doit retourner une IP différente)
+curl -s --proxy socks5://127.0.0.1:40000 https://api.ipify.org
+```
+
+### Configuration de l'addon
+
+Ajoutez dans votre `.env` :
+
+```env
+TF1_PROXY_HOST=127.0.0.1
+TF1_PROXY_PORT=40000
+```
+
+### Avec Docker
+
+Utilisez `network_mode: host` pour que le container puisse accéder au proxy WARP :
+
+```yaml
+version: '3.8'
+services:
+  tvlegal:
+    image: ghcr.io/loo-stick/stremio-addon-tvlegal:latest
+    container_name: tvlegal
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TF1_PROXY_HOST=127.0.0.1
+      - TF1_PROXY_PORT=40000
+      - TF1_EMAIL=votre@email.com
+      - TF1_PASSWORD=votremotdepasse
+```
+
+> **Note** : Avec `network_mode: host`, le port est directement exposé sur l'hôte (pas besoin de `ports:`).
+
+### Vérification
+
+Au démarrage de l'addon, vous devriez voir dans les logs :
+```
+[TF1] Proxy SOCKS5 configuré: 127.0.0.1:40000
+```
 
 ## Déploiement
 
