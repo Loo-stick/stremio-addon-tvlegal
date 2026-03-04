@@ -6,7 +6,7 @@
  * - Arte.tv - Direct + Replay
  * - TF1+ (TF1, TMC, TFX, LCI + FAST) - Direct uniquement (compte requis)
  *
- * @version 1.8.0
+ * @version 1.8.1
  * @license MIT
  */
 
@@ -394,7 +394,7 @@ function getManifest(config) {
 
     return {
         id: 'community.tvlegal.france',
-        version: '1.8.0',
+        version: '1.8.1',
         name: 'TV Legal France',
         description: 'Chaînes françaises légales : France.tv, Arte.tv, TF1+ - Films, Séries, Documentaires, Émissions',
         logo: 'https://upload.wikimedia.org/wikipedia/fr/thumb/4/43/TNT_France_logo.svg/200px-TNT_France_logo.svg.png',
@@ -1925,6 +1925,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
 
             // Vérifier les prérequis
             const userMediaflowUrl = currentConfig?.mediaflowUrl;
+            const userMediaflowPassword = currentConfig?.mediaflowPassword;
             if (!userMediaflowUrl) {
                 console.log('[TV Legal] TF1 replay: pas de MediaFlow configuré');
                 return {
@@ -1992,10 +1993,15 @@ builder.defineStreamHandler(async ({ type, id }) => {
                 console.log(`[TV Legal] TF1 replay: ${keys.length} clé(s), envoi vers MediaFlow...`);
 
                 const mediaflowBase = userMediaflowUrl.replace(/\/+$/, '');
-                const mediaflowUrl = `${mediaflowBase}/proxy/mpd/manifest.m3u8?` +
+                let mediaflowUrl = `${mediaflowBase}/proxy/mpd/manifest.m3u8?` +
                     `d=${encodeURIComponent(mpdUrl)}&` +
                     `key_id=${encodeURIComponent(keyIds)}&` +
                     `key=${encodeURIComponent(keyValues)}`;
+
+                // Ajouter le password MediaFlow si configuré
+                if (userMediaflowPassword) {
+                    mediaflowUrl += `&api_password=${encodeURIComponent(userMediaflowPassword)}`;
+                }
 
                 // Récupérer le titre
                 const info = await tf1.getMediaInfo(videoId);
@@ -2439,7 +2445,7 @@ app.get('/drm/test', (req, res) => {
 app.listen(PORT, () => {
     console.log(`
 ╔════════════════════════════════════════════════════╗
-║         TV Legal France - Stremio v1.8.0           ║
+║         TV Legal France - Stremio v1.8.1           ║
 ╠════════════════════════════════════════════════════╣
 ║  Sources légales :                                 ║
 ║  ✓ France.tv (direct + replay)                     ║

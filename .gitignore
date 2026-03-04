@@ -33,6 +33,9 @@ CLAUDE.md
 device.wvd
 *.wvd
 
+# Widevine keys cache (contains extracted keys)
+.widevine-keys-cache.json
+
 # Local DRM testing tools (NOT part of addon)
 drm-proxy-server.py
 test-*.js
